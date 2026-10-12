@@ -58,6 +58,11 @@ data may differ; `nested` is the closest stand-in.
 * **Save**: Source `RecursiveSaveToFile` into a `CUtlBuffer`, then `fwrite`; ours `WriteToFile`. Best of 7.
 * **Memory**: one loaded tree in a *fresh process* per file. *heap* = `mallinfo2()` bytes in use after the
   load (the string pool of ours is included); *RSS* = growth of VmRSS; *peak* = VmHWM.
+* **Correction.** Earlier versions of `kv_compare.cpp` saved Source trees by calling `RecursiveSaveToFile` on every
+  child of the root. That function writes a *container* (its name and its children), so for `wide` (whose children are
+  scalars) Source wrote 100 000 empty blocks (1.9 MB) instead of the values: its save time for `wide` was too low
+  (8.7 ms instead of 15 ms). It now saves the root, exactly like `SaveToFile`; the output is byte-identical to the one
+  of Portal 2: Community Edition (see below).
 * **Lookups**: top-level lookup by name of random keys in a large object, and `GetInt`/`GetString` in 6-key
   objects (the checksum of the values read must be equal in both libraries: the table says `same`).
 * **Threads**: N threads each load `nested.kv` into their own tree; total MB/s.
@@ -74,48 +79,52 @@ session; ratios between the two libraries measured in the same process are more 
 Run of the final code (after escape sequences, empty-key error, `GetBool` and `RemoveKey` were added).
 File sizes: wide 2.8 MB, nested 10.8 MB, unique 7.9 MB, nested_big 86.7 MB.
 
+P2CE is Portal 2: Community Edition, measured through its own binaries (see the section below; the tools for it are not published). Its column comes
+from a separate full run of the same files on the same machine, which measured Source and ours again; the two
+runs of Source differ by a few percent (for example `nested` load 153 vs 150 ms), the lookups in big objects by more (cache misses).
+
 #### Load file -> tree (best of 7, page cache warm)
 
-| file | Source | ours | ours -O3 native | ours vs Source |
-|---|---|---|---|---|
-| wide | 134.7 ms (20 MB/s) | 12.4 ms (218 MB/s) | 12.9 ms (210 MB/s) | 10.8x |
-| nested | 154.6 ms (67 MB/s) | 43.3 ms (238 MB/s) | 45.2 ms (228 MB/s) | 3.6x |
-| unique | 275.3 ms (28 MB/s) | 32.0 ms (237 MB/s) | 36.0 ms (210 MB/s) | 8.6x |
-| nested_big | 1470.7 ms (56 MB/s) | 431.4 ms (192 MB/s) | 470.8 ms (176 MB/s) | 3.4x |
+| file | Source | P2CE | ours | ours -O3 native | ours vs Source | ours vs P2CE |
+|---|---|---|---|---|---|---|
+| wide | 138.2 ms (20 MB/s) | 116.7 ms (23 MB/s) | 14.1 ms (192 MB/s) | 13.7 ms (198 MB/s) | 9.8x | 8.3x |
+| nested | 153.2 ms (67 MB/s) | 109.3 ms (94 MB/s) | 49.1 ms (210 MB/s) | 45.6 ms (226 MB/s) | 3.1x | 2.2x |
+| unique | 276.2 ms (27 MB/s) | 266.2 ms (28 MB/s) | 32.6 ms (232 MB/s) | 30.8 ms (246 MB/s) | 8.5x | 8.2x |
+| nested_big | 1370.4 ms (60 MB/s) | 1946.9 ms (42 MB/s) | 426.1 ms (194 MB/s) | 382.7 ms (216 MB/s) | 3.2x | 4.6x |
 
 #### Destroy tree
 
-| file | Source | ours | ours -O3 native |
-|---|---|---|---|
-| wide | 1.5 ms | 0.1 ms | 0.1 ms |
-| nested | 6.8 ms | 2.4 ms | 2.3 ms |
-| unique | 3.2 ms | 2.1 ms | 2.1 ms |
-| nested_big | 57.0 ms | 17.1 ms | 16.9 ms |
+| file | Source | P2CE | ours | ours -O3 native |
+|---|---|---|---|---|
+| wide | 1.5 ms | 0.7 ms | 0.1 ms | 0.1 ms |
+| nested | 6.7 ms | 3.6 ms | 2.3 ms | 2.3 ms |
+| unique | 3.2 ms | 1.6 ms | 2.0 ms | 2.0 ms |
+| nested_big | 56.5 ms | 28.6 ms | 17.2 ms | 16.7 ms |
 
 #### Save tree -> file (Source writes to a buffer, then fwrite)
 
-| file | Source | ours | ours -O3 native | output size Source / ours |
-|---|---|---|---|---|
-| wide | 8.7 ms (206 MB/s) | 2.5 ms (1092 MB/s) | 2.4 ms (1148 MB/s) | 1.9 / 2.8 MB |
-| nested | 54.6 ms (141 MB/s) | 12.1 ms (860 MB/s) | 14.5 ms (714 MB/s) | 8.1 / 10.9 MB |
-| unique | 20.7 ms (302 MB/s) | 6.3 ms (1207 MB/s) | 5.9 ms (1277 MB/s) | 6.5 / 7.9 MB |
-| nested_big | 433.0 ms (143 MB/s) | 127.8 ms (653 MB/s) | 157.3 ms (530 MB/s) | 65.1 / 87.5 MB |
+| file | Source | P2CE | ours | ours -O3 native | ours vs Source | ours vs P2CE | output size Source / P2CE / ours |
+|---|---|---|---|---|---|---|---|
+| wide | 15.0 ms (181 MB/s) | 12.4 ms (219 MB/s) | 2.4 ms (1141 MB/s) | 2.4 ms (1122 MB/s) | 6.2x | 5.2x | 2.8 / 2.8 / 2.8 MB |
+| nested | 54.1 ms (143 MB/s) | 41.8 ms (184 MB/s) | 11.9 ms (872 MB/s) | 16.2 ms (641 MB/s) | 4.5x | 3.5x | 8.1 / 8.1 / 10.9 MB |
+| unique | 20.7 ms (301 MB/s) | 14.5 ms (430 MB/s) | 6.3 ms (1210 MB/s) | 6.0 ms (1274 MB/s) | 3.3x | 2.3x | 6.5 / 6.5 / 7.9 MB |
+| nested_big | 430.1 ms (144 MB/s) | 333.9 ms (186 MB/s) | 117.0 ms (713 MB/s) | 149.4 ms (559 MB/s) | 3.7x | 2.9x | 65.1 / 65.1 / 87.5 MB |
 
 #### Memory of one loaded tree (fresh process; heap = malloc in use, RSS = resident growth)
 
-| file | file size | heap Source | heap ours | RSS Source | RSS ours | peak RSS Source | peak RSS ours |
-|---|---|---|---|---|---|---|---|
-| wide | 2.8 MB | 10.7 MB (3.77x) | 12.1 MB (4.24x) | 12.8 MB | 10.5 MB | 15.4 MB | 12.3 MB |
-| nested | 10.8 MB | 41.6 MB (3.86x) | 17.2 MB (1.60x) | 43.7 MB | 16.7 MB | 54.1 MB | 17.5 MB |
-| unique | 7.9 MB | 22.4 MB (2.82x) | 27.4 MB (3.45x) | 26.6 MB | 23.2 MB | 34.3 MB | 24.9 MB |
-| nested_big | 86.7 MB | 337.8 MB (3.90x) | 131.8 MB (1.52x) | 336.2 MB | 128.7 MB | 421.9 MB | 135.3 MB |
+| file | file size | heap Source | heap P2CE | heap ours | RSS Source | RSS P2CE | RSS ours | peak RSS Source | peak RSS P2CE | peak RSS ours |
+|---|---|---|---|---|---|---|---|---|---|---|
+| wide | 2.8 MB | 10.7 MB (3.77x) | 10.9 MB (3.83x) | 12.1 MB (4.24x) | 12.8 MB | 17.0 MB | 10.5 MB | 15.5 MB | 17.0 MB | 12.0 MB |
+| nested | 10.8 MB | 41.6 MB (3.86x) | 38.1 MB (3.53x) | 17.2 MB (1.60x) | 43.7 MB | 40.7 MB | 16.7 MB | 54.1 MB | 53.1 MB | 17.4 MB |
+| unique | 7.9 MB | 22.4 MB (2.82x) | 22.8 MB (2.87x) | 27.4 MB (3.45x) | 26.7 MB | 27.4 MB | 23.2 MB | 34.2 MB | 35.6 MB | 24.8 MB |
+| nested_big | 86.7 MB | 337.8 MB (3.90x) | 304.7 MB (3.51x) | 131.8 MB (1.52x) | 336.2 MB | 317.7 MB | 130.0 MB | 422.2 MB | 405.8 MB | 136.2 MB |
 
 #### Lookups
 
-| file | keys in the top object | top-level by name: Source | ours | 6-key object GetInt / GetString: Source | ours | values read |
-|---|---|---|---|---|---|---|
-| nested | 50000 | 52484 ns | 53 ns | 24 / 19 ns | 22 / 22 ns | same |
-| wide | 100000 | 121372 ns | 149 ns | - | - | - |
+| file | keys in the top object | top-level by name: Source | P2CE | ours | 6-key GetInt / GetString: Source | P2CE | ours | values read |
+|---|---|---|---|---|---|---|---|---|
+| nested | 50000 | 60104 ns | 56582 ns | 55 ns | 24 / 19 ns | 24 / 18 ns | 23 / 23 ns | same |
+| wide | 100000 | 116254 ns | 74991 ns | 99 ns | - | - | - | - |
 
 Source's default key-name table (4 MB) overflowed on: nested_big; its numbers for those files use KeyValues::SetUseGrowableStringTable(true).
 
@@ -123,11 +132,11 @@ Source's default key-name table (4 MB) overflowed on: nested_big; its numbers fo
 
 | threads | Source | ours (thread-safe build) | ours vs Source |
 |---|---|---|---|
-| 1 | 62 MB/s | 200 MB/s | 3.3x |
-| 2 | 64 MB/s | 271 MB/s | 4.2x |
-| 4 | 63 MB/s | 235 MB/s | 3.7x |
-| 8 | 63 MB/s | 214 MB/s | 3.4x |
-| 16 | 65 MB/s | 203 MB/s | 3.1x |
+| 1 | 61 MB/s | 196 MB/s | 3.2x |
+| 2 | 64 MB/s | 277 MB/s | 4.3x |
+| 4 | 65 MB/s | 219 MB/s | 3.4x |
+| 8 | 64 MB/s | 178 MB/s | 2.8x |
+| 16 | 64 MB/s | 194 MB/s | 3.0x |
 
 ### Noise in the `wide` lookup
 
@@ -148,18 +157,102 @@ unchanged). The same A/B for the rest: load of nested/wide/unique within 0.5 ms 
 33 vs 33 ms), heap bytes identical, nested lookup 57–62 vs 56–60 ns, `GetInt` in a small object 23.0 vs 23.2 ns.
 Source's own number for the same lookup also drifted (118 µs earlier, 122–126 µs now).
 
+## Portal 2: Community Edition
+
+Portal 2: Community Edition (P2CE) is a modified CS:GO-branch Source engine whose tier1 was partly rewritten
+with `std::` code (for example `std::from_chars` for numbers and a real expression evaluator for `[...]`
+conditions). This section compares the **game's own binaries** with Source and with this library.
+
+**How it was measured.** The `KeyValues` class of the game's own binaries was called directly by a local harness,
+for one specific build of the game. Same generated files, same machine and the same measurements as above, a
+separate run, best of 7.
+
+Notes: the game's executable lists mimalloc before libc, so its `new`/`malloc` are mimalloc's; the harness links
+the same way, and "heap" for P2CE is the sum of the used blocks of mimalloc (Source and ours: glibc `mallinfo2`).
+The text P2CE writes is byte-for-byte what Source writes (checked on `nested` and `wide`). P2CE's `LoadFromBuffer`
+has no escape-sequence switch that I could find; it behaves like Source here (see the probes).
+
+> **Important: the P2CE measurement tools will not be published.** The harness and everything it needs
+> are deliberately kept out of this repository (they are in `.gitignore`). They are tied to the game's
+> proprietary binaries and publishing them would be harmful rather than useful. The P2CE numbers here are
+> reported as results only and cannot be reproduced from this repository; the Source and "ours" numbers can
+> (see *Reproduce*).
+
+The P2CE columns are in the tables of the *Results* section above (Load, Destroy, Save, Memory, Lookups).
+
+**What the numbers say.**
+
+* **Load.** P2CE is 1.2x–1.4x faster than Source on `wide` and `nested` (117 vs 138 ms, 109 vs 153 ms), the same on
+  `unique`, and **1.4x slower on `nested_big`** (1.95 s vs 1.37 s; Source needed its growable name table there). For both,
+  the time per megabyte grows with the number of distinct key names (P2CE: `nested` 10 ms/MB, `nested_big` 22 ms/MB);
+  I did not investigate the cause. This library is 2.2x–8.3x faster than P2CE on load.
+* **Save.** P2CE is 1.2x–1.4x faster than Source; the output is byte-identical to Source's. This library is
+  2.3x–5.2x faster than P2CE and writes up to 35% more bytes.
+* **Memory.** On `nested` (repeated names and values) P2CE needs **8% less heap than Source** (3.5x the file size
+  against 3.9x) and 2.2x more than this library (1.6x). With distinct strings (`unique`, `wide`) P2CE and Source are the
+  same (2.9x / 3.8x), and this library needs 13%–22% more. Peak RSS of P2CE is between 4% below and 10% above Source's.
+* **Lookup by name.** The same design as Source (a linear walk over the siblings): 57 µs (P2CE) in a 50 000-key object
+  and 75 µs in a 100 000-key one, against 60 µs and 116 µs for Source. In small objects all three are the same: 24 / 18 ns for `GetInt` / `GetString`.
+* **Destroy.** About 2x faster than Source.
+
+#### P2CE: behaviour on small probes
+
+Every probe is loaded by the three libraries and the tree is compared (names lower-cased, numbers shown as
+numbers). `returns` is what `LoadFromBuffer` / `LoadFromFile` returned.
+
+| case | text | Source | P2CE | ours | compare |
+|---|---|---|---|---|---|
+| escape \n and \" in a quoted value | `"R" { s "x\ny" q "a\"b" z 1 }` | **returns true**<br>`r/s` string `x\\ny`<br>`r/q` string `a\\`<br>`r/b` string ` z 1 }` | **returns false**<br>`r/s` string `x\\ny`<br>`r/q` string `a\\`<br>`r/b` string ` z 1 }`<br>`r/ z 1 }` kv | **returns false** | P2CE differs Source; ours differs P2CE |
+| backslash before the closing quote | `"R" { p "C:\games\" n 1 }` | **returns true**<br>`r/p` string `C:\\games\\`<br>`r/n` int `1` | **returns true**<br>`r/p` string `C:\\games\\`<br>`r/n` int `1` | **returns true**<br>`r/p` string `C:\\games\\`<br>`r/n` int `1` | P2CE = Source; ours = P2CE |
+| /* block comment */ | `"R" { a 1 /* c */ b 2 }` | **returns true**<br>`r/a` int `1`<br>`r//*` string `c`<br>`r/*/` string `b`<br>`r/2` kv | **returns false**<br>`r/a` int `1`<br>`r//*` string `c`<br>`r/*/` string `b`<br>`r/2` kv | **returns true**<br>`r/a` int `1`<br>`r/b` int `2` | P2CE differs Source; ours differs P2CE |
+| // inside an unquoted value | `"R" { w a//b n 1 }` | **returns true**<br>`r/w` string `a//b`<br>`r/n` int `1` | **returns true**<br>`r/w` string `a//b`<br>`r/n` int `1` | **returns false** | P2CE = Source; ours differs P2CE |
+| // inside a quoted value | `"R" { w "a//b" n 1 }` | **returns true**<br>`r/w` string `a//b`<br>`r/n` int `1` | **returns true**<br>`r/w` string `a//b`<br>`r/n` int `1` | **returns true**<br>`r/w` string `a//b`<br>`r/n` int `1` | P2CE = Source; ours = P2CE |
+| numbers: "5" "5.5" +5 0x10 12abc | `"R" { a "5" b "5.5" c +5 d 0x10 e 12abc }` | **returns true**<br>`r/a` int `5`<br>`r/b` float `5.5`<br>`r/c` int `5`<br>`r/d` string `0x10`<br>`r/e` string `12abc` | **returns true**<br>`r/a` int `5`<br>`r/b` float `5.5`<br>`r/c` int `5`<br>`r/d` string `0x10`<br>`r/e` string `12abc` | **returns true**<br>`r/a` int `5`<br>`r/b` float `5.5`<br>`r/c` int `5`<br>`r/d` string `0x10`<br>`r/e` string `12abc` | P2CE = Source; ours = P2CE |
+| number out of int range | `"R" { big 3000000000 }` | **returns true**<br>`r/big` int `-1294967296` | **returns true**<br>`r/big` int `0` | **returns true**<br>`r/big` float `3e+09` | P2CE differs Source; ours differs P2CE |
+| duplicate keys | `"R" { a 1 a 2 }` | **returns true**<br>`r/a` int `1`<br>`r/a` int `2` | **returns true**<br>`r/a` int `1`<br>`r/a` int `2` | **returns true**<br>`r/a` int `1`<br>`r/a` int `2` | P2CE = Source; ours = P2CE |
+| keys differing in case | `"R" { Key 1 key 2 }` | **returns true**<br>`r/key` int `1`<br>`r/key` int `2` | **returns true**<br>`r/key` int `1`<br>`r/key` int `2` | **returns true**<br>`r/key` int `1`<br>`r/key` int `2` | P2CE = Source; ours = P2CE |
+| condition [$X360] / [!$X360] | `"R" { a 1 [$X360] a 2 [!$X360] }` | **returns true**<br>`r/a` int `2` | **returns true**<br>`r/a` int `2` | **returns true**<br>`r/a` int `2` | P2CE = Source; ours = P2CE |
+| condition [$LINUX] | `"R" { a 1 [$LINUX] b 2 [$WIN32] }` | **returns true**<br>`r/a` int `1`<br>`r/b` int `2` | **returns true**<br>`r/a` int `1` | **returns true**<br>`r/a` int `1` | P2CE differs Source; ours = P2CE |
+| condition [$A && $B] (expression) | `"R" { a 1 [$LINUX && $POSIX] b 2 [$LINUX && $X360] }` | **returns true**<br>`r/a` int `1`<br>`r/[$linux` string `&&`<br>`r/$posix]` string `b`<br>`r/2` string `[$LINUX`<br>`r/&&` string `$X360]` | **returns true**<br>`r/a` int `1` | **returns true**<br>`r/a` int `1` | P2CE differs Source; ours = P2CE |
+| condition with a blank [ $LINUX ] | `"R" { a 1 [ $LINUX ] }` | **returns true**<br>`r/a` int `1`<br>`r/[` string `$LINUX`<br>`r/]` kv | **returns true**<br>`r/a` int `1` | **returns true**<br>`r/a` int `1` | P2CE differs Source; ours = P2CE |
+| empty key | `"R" { "" 1 b 2 }` | **returns true** | **returns false** | **returns false** | P2CE differs Source; ours = P2CE |
+| missing closing brace | `"R" { a 1 b 2` | **returns true**<br>`r/a` int `1`<br>`r/b` int `2` | **returns false**<br>`r/a` int `1`<br>`r/b` int `2`<br>`r/2` kv | **returns false** | P2CE differs Source; ours differs P2CE |
+| extra closing brace | `"R" { a 1 } }` | **returns true**<br>`r/a` int `1` | **returns false**<br>`r/a` int `1` | **returns false** | P2CE differs Source; ours differs P2CE |
+| two root keys | `"A" { a 1 } "B" { b 2 }` | **returns true**<br>`a/a` int `1`<br>`b/b` int `2` | **returns true**<br>`a/a` int `1`<br>`b/b` int `2` | **returns false** | P2CE = Source; ours differs P2CE |
+| #base before the root | `#base "x.txt" "R" { a 1 }` | **returns true**<br>`r/a` int `1` | **returns true**<br>`r/a` int `1` | **returns false** | P2CE = Source; ours differs P2CE |
+| #include inside the root | `"R" { #include "x.txt" a 1 }` | **returns true**<br>`r/#include` string `x.txt`<br>`r/a` int `1` | **returns true**<br>`r/#include` string `x.txt`<br>`r/a` int `1` | **returns true**<br>`r/#include` string `x.txt`<br>`r/a` int `1` | P2CE = Source; ours = P2CE |
+| key without a value | `"R" { a }` | **returns true**<br>`r/a` kv | **returns false**<br>`r/a` kv | **returns false** | P2CE differs Source; ours differs P2CE |
+| unterminated quote | `"R" { a "abc }` | **returns true**<br>`r/a` string `abc }` | **returns false**<br>`r/a` string `abc }`<br>`r/abc }` kv | **returns false** | P2CE differs Source; ours differs P2CE |
+| tab inside an unquoted token | `"R" { a b c 1 }` | **returns true**<br>`r/a` string `b`<br>`r/c` int `1` | **returns true**<br>`r/a` string `b`<br>`r/c` int `1` | **returns true**<br>`r/a` string `b`<br>`r/c` int `1` | P2CE = Source; ours = P2CE |
+
+**What stands out.**
+
+* P2CE keeps Source's tokenizer: `\` is an ordinary character (strings end at the next quote), `//` inside an
+  unquoted value is kept, there is no `/* */`, several root keys are read, `#base` before the root is recognised, and
+  `#include` inside a block is a plain key here only because the file does not exist.
+* P2CE is **stricter than Source about errors**: an empty key, a missing or extra `}`, a key without a value and an
+  unterminated quote make `LoadFromBuffer` return `false` (Source returns `true` and keeps what it read). It still
+  leaves the part of the tree it read; this library returns `false` and an empty object.
+* **Conditions** are a real expression evaluator in P2CE (`&&`, `||`, `!`, parentheses, blanks in `[ ... ]`), like this
+  library, with a default symbol callback that knows `WIN32`, `WINDOWS`, `X360`, `PS3`, `OSX`, `LINUX`, `POSIX`,
+  `GAMECONSOLE`, `DEMO` and `LOWVIOLENCE` (a null callback selects it). Source splits `[$LINUX && $POSIX]` into
+  several string keys.
+* **Numbers** are parsed with `std::from_chars`: `3000000000` does not fit and becomes the int `0` (Source: wraps to
+  -1294967296; this library: a float). Everything else (`"5"`, `+5`, `0x10`, `12abc`) matches Source and this library.
+* Duplicate keys and keys that differ only in case are kept side by side, as in Source (lookups ignore case through the symbol table).
+
 ## Reading the numbers
 
-* **Load: 3.4x–11x faster.** On `nested` (typical data) 3.6x. The larger ratios on `wide` (10.8x) and `unique`
-  (8.6x) come from a Source design limit: its key-name table (`CKeyValuesSystem`) has a fixed number of
+* **Load: 3.1x–9.8x faster.** On `nested` (typical data) 3.1x. The larger ratios on `wide` (9.8x) and `unique`
+  (8.5x) come from a Source design limit: its key-name table (`CKeyValuesSystem`) has a fixed number of
   buckets with chains compared by `stricmp`, so with 100k+ distinct names every interning walks a long chain.
   Source also keeps the whole file in memory while parsing; ours streams.
-* **Save: 3.3x–4.5x faster.** Outputs are not byte-equal: Source quotes every value, rewrites numbers
+* **Save: 3.3x–6.3x faster.** Outputs are not byte-equal: Source quotes every value, rewrites numbers
   (`7.11` -> `"7.110000"`) and indents with tabs; ours keeps the number text as read and indents with 4 spaces,
-  so ours writes about 35–45% more bytes. Both write the same number of lines.
-* **Destroy: 1.5x–15x faster.**
-* **Lookups by name in a large object: about 1000x.** Source's `FindKey` walks the sibling list (51–54 µs with
-  50 000 keys, 118–126 µs with 100 000); ours uses an index for objects over 16 keys (53–60 ns, 100–150 ns for
+  so ours writes up to 35% more bytes (the same for `wide`, whose values are mostly strings). Both write the same number of lines.
+* **Destroy: 1.6x–15x faster.**
+* **Lookups by name in a large object: about 1000x.** Source's `FindKey` walks the sibling list (55–72 µs with
+  50 000 keys, 116–127 µs with 100 000); ours uses an index for objects over 16 keys (55–63 ns, 99–150 ns for
   100 000 keys, see the noise note). In small objects (6 keys), where games spend most of their time, both are
   about 20–30 ns: no difference.
 * **Memory depends on the data.** On `nested` (repeated names and values) ours uses **2.4x–2.6x less heap** (1.5x–1.6x
@@ -169,7 +262,7 @@ Source's own number for the same lookup also drifted (118 µs earlier, 122–126
   lower for ours on every file (up to 3x on `nested_big`), because Source holds the whole file in memory while parsing.
 * **Threads.** Source cannot load two files at once: `LoadFromBuffer` parses into a process-wide static token
   buffer, and unsynchronised runs with 4 threads crashed. The Source column therefore serialises parsing with a
-  mutex and stays at ~63 MB/s. Ours is thread-safe and 3.1x–4.2x faster in total, but **does not scale**: about 200–270
+  mutex and stays at ~63 MB/s. Ours is thread-safe and 2.8x–4.3x faster in total, but **does not scale**: about 180–280
   MB/s from 1 to 16 threads, because every interned token takes a shared lock on one pool (the reader counter is a
   cache line all threads fight over).
 

@@ -32,3 +32,6 @@ __pycache__/
 core
 core.*
 saved.kv
+
+# local-only P2CE comparison
+/bench/p2ce/

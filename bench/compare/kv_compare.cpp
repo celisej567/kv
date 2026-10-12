@@ -75,12 +75,7 @@ Node* Load(const char* path) {
 
 bool Save(Node* kv, const char* path) {
     CUtlBuffer buf(0, 0, CUtlBuffer::TEXT_BUFFER);
-    buf.PutString("\"");
-    buf.PutString(kv->GetName());
-    buf.PutString("\"\n");
-    buf.PutString("{\n");
-    for (KeyValues* sub = kv->GetFirstSubKey(); sub; sub = sub->GetNextKey()) sub->RecursiveSaveToFile(buf, 1);
-    buf.PutString("}\n");
+    kv->RecursiveSaveToFile(buf, 0);  // `"name" { children }`; scalar children are written by their parent
     FILE* f = std::fopen(path, "wb");
     if (!f) return false;
     const bool ok = std::fwrite(buf.Base(), 1, static_cast<size_t>(buf.TellPut()), f) == static_cast<size_t>(buf.TellPut());
