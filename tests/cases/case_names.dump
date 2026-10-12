@@ -1,0 +1,9 @@
+mixedcase/name	string	Value With CAPS
+mixedcase/name	string	second
+mixedcase/Ünïcode	string	ÄÖ
+mixedcase/sub	kv	
+mixedcase/sub/inner	int	1
+mixedcase/sub/inner	int	2
+mixedcase/sub	kv	
+mixedcase/sub/x	string	X
+mixedcase/true	string	True

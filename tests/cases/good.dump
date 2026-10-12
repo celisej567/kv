@@ -1,0 +1,5 @@
+something/val1	string	somestring
+something/val2	kv	
+something/val2/imcool	float	1.02
+something/var3	string	true
+something/count	int	42

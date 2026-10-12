@@ -1,0 +1,9 @@
+r/a	int	+5
+r/b	int	+5
+r/c	float	+2.5
+r/d	string	+-5
+r/e	string	++5
+r/f	string	+
+r/g	float	+.5
+r/h	string	+x
+r/i	string	5+

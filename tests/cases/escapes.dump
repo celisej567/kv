@@ -1,0 +1,2 @@
+esc/k"q	string	line1\nline2\\n "quoted" \\q
+esc/sp ace	string	a  b

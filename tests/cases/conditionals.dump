@@ -1,0 +1,10 @@
+root/a	int	1
+root/a	int	3
+root/a	int	4
+root/a	int	6
+root/a	int	7
+root/b	string	kept
+root/c	string	[$X360]
+root/d	kv	
+root/d/in	int	1
+root/e	string	y

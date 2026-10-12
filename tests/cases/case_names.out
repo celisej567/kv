@@ -1,0 +1,16 @@
+"mixedcase"
+{
+    "name" "Value With CAPS"
+    "name" "second"
+    "Ünïcode" "ÄÖ"
+    "sub"
+    {
+        "inner" 1
+        "inner" 2
+    }
+    "sub"
+    {
+        "x" "X"
+    }
+    "true" "True"
+}

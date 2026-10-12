@@ -1,0 +1,8 @@
+# Get* sees the first occurrence of a repeated name, like Source's FindKey
+game | string | => HALF-LIFE 2
+supportsvr | int | => 1
+FileSystem/SteamAppId | int | => 220
+FileSystem/SearchPaths/game | string | => |all_source_engine_paths|hl2/hl2_textures.vpk
+FileSystem/SearchPaths/game+mod | string | => hl2/custom/*
+FileSystem/SearchPaths/platform | string | => |all_source_engine_paths|platform/platform_misc.vpk
+FileSystem/SearchPaths/GAME | string | none => |all_source_engine_paths|hl2/hl2_textures.vpk

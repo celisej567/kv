@@ -1,0 +1,8 @@
+r/a	int	12
+r/b	int	-3
+r/c	float	2.75
+r/d	float	1e2
+r/e	string	12abc
+r/f	string	
+r/g	string	 5
+r/h	string	0x10

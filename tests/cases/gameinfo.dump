@@ -1,0 +1,20 @@
+gameinfo/game	string	HALF-LIFE 2
+gameinfo/title	string	HALF-LIFE'
+gameinfo/type	string	singleplayer_only
+gameinfo/supportsvr	int	1
+gameinfo/filesystem	kv	
+gameinfo/filesystem/steamappid	int	220
+gameinfo/filesystem/searchpaths	kv	
+gameinfo/filesystem/searchpaths/game+mod	string	hl2/custom/*
+gameinfo/filesystem/searchpaths/game_lv	string	hl2/hl2_lv.vpk
+gameinfo/filesystem/searchpaths/game+mod	string	hl2/hl2_sound_vo_english.vpk
+gameinfo/filesystem/searchpaths/game+mod	string	hl2/hl2_pak.vpk
+gameinfo/filesystem/searchpaths/game	string	|all_source_engine_paths|hl2/hl2_textures.vpk
+gameinfo/filesystem/searchpaths/game	string	|all_source_engine_paths|hl2/hl2_sound_misc.vpk
+gameinfo/filesystem/searchpaths/game	string	|all_source_engine_paths|hl2/hl2_misc.vpk
+gameinfo/filesystem/searchpaths/platform	string	|all_source_engine_paths|platform/platform_misc.vpk
+gameinfo/filesystem/searchpaths/mod+mod_write+default_write_path	string	|gameinfo_path|.
+gameinfo/filesystem/searchpaths/game+game_write	string	hl2
+gameinfo/filesystem/searchpaths/gamebin	string	hl2/bin
+gameinfo/filesystem/searchpaths/game	string	|all_source_engine_paths|hl2
+gameinfo/filesystem/searchpaths/platform	string	|all_source_engine_paths|platform

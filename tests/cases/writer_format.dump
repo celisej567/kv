@@ -1,0 +1,5 @@
+newsomething/name	string	a "q"\n
+newsomething/num	int	3
+newsomething/pi	float	1.5
+newsomething/superstuff	kv	
+newsomething/superstuff/deep	int	1

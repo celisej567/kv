@@ -1,0 +1,19 @@
+Root
+{
+    a 1 [$KVTRUE && $X360]
+    a 2 [ $KVTRUE ]
+    a 3 [$X360 || $KVTRUE && !$X360]
+    a 4 [$X360 && $X360 || ($KVTRUE && $KVTRUE)]
+    a 5 [($X360 || $KVTRUE) && !($X360 || $NOSUCH)]
+    a 6 [$X360 || $X360 && $KVTRUE]
+    a 7 [!$KVTRUE || ($X360)]
+    a 8 [$KVTRUE &&]
+    a 9 [($KVTRUE]
+    a 10 [$KVTRUE $KVTRUE]
+    blk [ !$X360 ]
+    {
+        in 1
+    }
+    blk [$X360 || $X360] { in 2 }
+    "[ not a condition ]" "[ nor this ]"
+}

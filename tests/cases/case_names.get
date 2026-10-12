@@ -1,0 +1,9 @@
+# names match without regard to case; values keep their case
+NAME | string | => Value With CAPS
+nAmE | string | => Value With CAPS
+MIXEDCASE | string | none => none
+SUB/INNER | int | => 1
+sub/Inner | int | => 1
+SUB | string | none => none
+true | string | => True
+ünïcode | string | none => none

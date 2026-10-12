@@ -1,0 +1,6 @@
+# path | type | default => expected
+b | string | => kept
+c | string | => [$X360]
+d/in | int | 0 => 1
+e | string | => y
+f | string | none => none

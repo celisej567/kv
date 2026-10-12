@@ -1,0 +1,11 @@
+# path | type | default => expected
+a | int | -9 => 12
+b | int | -9 => -3
+c | float | -9 => 2.75
+c | int | -9 => 2
+d | int | -9 => 100
+e | int | -9 => -9
+f | int | -9 => -9
+g | int | -9 => -9
+h | int | -9 => -9
+e | string | => 12abc

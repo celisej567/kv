@@ -1,0 +1,15 @@
+root/a	int	1
+root/a	int	2
+root/a	int	3
+root/a	int	4
+root/a	int	5
+root/a	int	6
+root/a	int	7
+root/a	int	8
+root/a	int	9
+root/a	int	10
+root/blk	kv	
+root/blk/in	int	1
+root/blk	kv	
+root/blk/in	int	2
+root/[ not a condition ]	string	[ nor this ]

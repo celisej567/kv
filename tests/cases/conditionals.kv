@@ -1,0 +1,19 @@
+Root
+{
+    a 1 [$KVTRUE]
+    a 2 [$X360]
+    a 3 [!$X360]
+    a 4 [$X360||$KVTRUE]
+    a 5 [$X360&&$KVTRUE]
+    a 6 [!($X360||$DECK)&&$KVTRUE]
+    a 7 [$kvtrue]
+    a 8 [$NOSUCH]
+    b [$X360] "dropped"
+    b [$KVTRUE] "kept"
+    c "[$X360]"
+    d [$KVTRUE] { in 1 }
+    d [$X360] { in 2 }
+    "e" "x" [$X360]
+    "e" "y" [$KVTRUE] // comment
+    f "last" [$X360]
+}

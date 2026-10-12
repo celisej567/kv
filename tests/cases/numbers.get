@@ -1,0 +1,7 @@
+d | float | => 1000
+d | int | 1 => 1000
+e | int | => -4
+e | float | => -4
+h | int | 3 => 7
+h | string | => 7
+a | float | 8 => 8

@@ -1,0 +1,5 @@
+r/a	int	1
+r/a	int	2
+r/b	string	x\ty
+r/c	kv	
+r/c/d	float	1.5

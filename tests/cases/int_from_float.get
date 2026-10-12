@@ -1,0 +1,14 @@
+# GetInt on a Float returns its integer part (toward zero); out of int range -> default
+a | int | 5 => 1
+b | int | 5 => -1
+c | int | 5 => 0
+d | int | 5 => 0
+e | int | 5 => 5
+f | int | 5 => 5
+g | int | 5 => 2147483647
+h | int | 5 => -2147483648
+i | int | 5 => 7
+i | float | => 7
+j | int | 5 => 8
+k | int | 5 => 0
+a | string | => 1.99

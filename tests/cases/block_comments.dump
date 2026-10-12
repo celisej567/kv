@@ -1,0 +1,12 @@
+r/a	int	1
+r/d	int	4
+r/e	string	x /* not a comment */ y
+r/f	string	5/*x*/
+r/path	string	hl2/custom/*
+r/l	int	10
+r/g	int	6
+r/h	int	7
+r/i	int	8
+r/sub	kv	
+r/sub/j	int	9
+r/k	string	a//b

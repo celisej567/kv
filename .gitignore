@@ -1,0 +1,34 @@
+# build output
+/build*/
+/out/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+/Testing/
+*.o
+*.a
+*.obj
+*.exe
+
+# editor / language server caches
+/.cache/
+/.vs/
+/.idea/
+/.vscode/
+
+# python
+__pycache__/
+*.pyc
+
+# files the tests and benchmarks write
+*.written
+*.written2
+
+# generated benchmark data and logs
+/bench/compare/out/
+*.log
+core
+core.*
+saved.kv

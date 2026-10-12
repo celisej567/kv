@@ -1,0 +1,16 @@
+r/item	kv	
+r/item/id	int	1
+r/item/tag	string	a
+r/other	int	5
+r/item	kv	
+r/item/id	int	2
+r/item/tag	string	b
+r/item/tag	string	c
+r/sub	kv	
+r/sub/a	string	x
+r/sub/a	string	y
+r/sub/a	kv	
+r/sub/a/deep	int	1
+r/item	kv	
+r/item	kv	
+r/item/id	int	4

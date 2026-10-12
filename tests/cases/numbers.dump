@@ -1,0 +1,9 @@
+r/a	string	nan
+r/b	string	inf
+r/c	string	0x10
+r/d	float	1e3
+r/e	int	-4
+r/f	float	-2.5
+r/g	int	+5
+r/h	int	7
+r/i	string	1.2.3

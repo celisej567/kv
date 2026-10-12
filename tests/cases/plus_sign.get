@@ -1,0 +1,11 @@
+# path | type | default => expected
+a | int | -9 => 5
+b | int | -9 => 5
+c | float | -9 => 2.5
+c | int | -9 => 2
+g | float | -9 => 0.5
+d | int | -9 => -9
+e | int | -9 => -9
+f | int | -9 => -9
+h | float | -9 => -9
+a | string | => +5

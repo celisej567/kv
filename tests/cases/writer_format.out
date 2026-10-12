@@ -1,0 +1,10 @@
+"newsomething"
+{
+    "name" "a \"q\"\n"
+    "num" 3
+    "pi" 1.5
+    "superstuff"
+    {
+        "deep" 1
+    }
+}
