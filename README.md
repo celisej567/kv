@@ -121,7 +121,7 @@ Our files are larger (except `wide`) because they are indented with spaces and n
 | wide | 100 000 | 116254 ns | 74991 ns | 99 ns | - | - | - |
 
 In a big object ours uses an index (built for objects over 16 keys), Source walks the list of siblings. In small
-objects all three are about the same. P2CE (a CS:GO-branch Source with parts rewritten with `std::`) behaves like Source here; its
+objects all three are about the same. P2CE (a CS:GO-branch Source) behaves like Source here; its
 loading is a little faster on small trees and slower on the largest one. The `wide` number for ours varies from run to run on the test machine
 (cache misses on 100 000 keys).
 

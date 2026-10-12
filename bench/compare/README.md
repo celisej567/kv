@@ -159,9 +159,9 @@ Source's own number for the same lookup also drifted (118 µs earlier, 122–126
 
 ## Portal 2: Community Edition
 
-Portal 2: Community Edition (P2CE) is a modified CS:GO-branch Source engine whose tier1 was partly rewritten
-with `std::` code (for example `std::from_chars` for numbers and a real expression evaluator for `[...]`
-conditions). This section compares the **game's own binaries** with Source and with this library.
+Portal 2: Community Edition (P2CE) is a modified CS:GO-branch Source engine. Its `KeyValues` differs from Source's
+in a few places (number parsing, a real expression evaluator for `[...]` conditions, stricter error handling).
+This section compares the **game's own binaries** with Source and with this library.
 
 **How it was measured.** The `KeyValues` class of the game's own binaries was called directly by a local harness,
 for one specific build of the game. Same generated files, same machine and the same measurements as above, a
@@ -237,7 +237,7 @@ numbers). `returns` is what `LoadFromBuffer` / `LoadFromFile` returned.
   library, with a default symbol callback that knows `WIN32`, `WINDOWS`, `X360`, `PS3`, `OSX`, `LINUX`, `POSIX`,
   `GAMECONSOLE`, `DEMO` and `LOWVIOLENCE` (a null callback selects it). Source splits `[$LINUX && $POSIX]` into
   several string keys.
-* **Numbers** are parsed with `std::from_chars`: `3000000000` does not fit and becomes the int `0` (Source: wraps to
+* **Numbers** are range-checked: `3000000000` does not fit and becomes the int `0` (Source: wraps to
   -1294967296; this library: a float). Everything else (`"5"`, `+5`, `0x10`, `12abc`) matches Source and this library.
 * Duplicate keys and keys that differ only in case are kept side by side, as in Source (lookups ignore case through the symbol table).
 
