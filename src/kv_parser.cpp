@@ -22,6 +22,7 @@ struct CharTable
     {
         t[' '] = t['\t'] = t['\r'] = t['\n'] = t['\f'] = t['\v'] = 1;
         t['{'] = t['}'] = t['"'] = 2;
+        t['/'] = 3;  // ends a bare word only as the start of a comment
     }
 };
 constexpr CharTable kChars;
@@ -189,6 +190,77 @@ private:
     bool bad_ = false;
 };
 
+// Number of '\n' in [p, p+n), eight bytes at a time. `last` gets the index of the final one (n if none).
+size_t CountNewlines(const char* p, size_t n, size_t& last)
+{
+    constexpr uint64_t kLow = 0x0101010101010101ull, kHigh = 0x8080808080808080ull;
+    size_t count = 0, i = 0;
+
+    for (; i + 8 <= n; i += 8)
+    {
+        uint64_t w;
+        std::memcpy(&w, p + i, 8);
+        w ^= kLow * '\n';  // a '\n' byte becomes zero
+        // exact zero-byte mask: the high bit of every byte that is zero
+        const uint64_t z = ~(((w & ~kHigh) + ~kHigh) | w | ~kHigh);
+        count += static_cast<size_t>(((z >> 7) * kLow) >> 56);
+    }
+
+    for (; i < n; ++i)
+        count += p[i] == '\n';
+
+    last = n;
+
+    for (size_t j = n; j-- > 0;)
+        if (p[j] == '\n')
+        {
+            last = j;
+            break;
+        }
+
+    return count;
+}
+
+// A small direct-mapped cache in front of the pool for short strings. The pool only grows and a slot
+// never changes its text, so an entry stays right forever; a hit costs one cache line and no lock.
+class InternCache
+{
+public:
+    static constexpr size_t kMaxLen = 20;  // the entry is 32 bytes
+
+    uint32_t Intern(KVStringPool& pool, std::string_view s)
+    {
+        const uint32_t h = KVHashString(s);
+
+        if (s.size() > kMaxLen)
+            return pool.Intern(s, h);
+
+        Entry& e = e_[h & (kEntries - 1)];
+
+        if (e.hash == h && e.len == s.size() && std::memcmp(e.text, s.data(), s.size()) == 0)
+            return e.slot;
+
+        const uint32_t slot = pool.Intern(s, h);
+        e.hash = h;
+        e.slot = slot;
+        e.len = static_cast<uint32_t>(s.size());
+        std::memcpy(e.text, s.data(), s.size());
+
+        return slot;
+    }
+
+private:
+    static constexpr size_t kEntries = 1024;
+    struct Entry
+    {
+        uint32_t hash = 0;
+        uint32_t slot = kInvalidSlot;
+        uint32_t len = 0xFFFFFFFFu;  // never matches
+        char text[kMaxLen];
+    };
+    Entry e_[kEntries];
+};
+
 // Streaming parser: the file is read through a sliding window, so peak memory is the tree plus
 // the window, not tree plus file. A token cut by the end of the window is rescanned after a refill.
 class Parser
@@ -196,6 +268,14 @@ class Parser
 public:
     Parser(FILE* f, bool useCond, bool useEsc)
         : f_(f), buf_(kInitialWindow), conds_(SnapshotConditions()), useCond_(useCond), useEsc_(useEsc) {}
+
+    // after an exception from the pool, children that were staged are still owned here
+    ~Parser()
+    {
+        for (const KVInternal::Node& n : stage_)
+            if (n.type == CKeyValue::KeyValue)
+                delete n.child;
+    }
 
     bool Parse(CKeyValue& root)
     {
@@ -349,14 +429,11 @@ private:
 
     void Refill(size_t keep)
     {
-        for (size_t i = 0; i < keep; ++i)
-        {
-            if (buf_[i] == '\n')
-            {
-                ++discardedNewlines_;
-                lastNewlineAbs_ = static_cast<long long>(base_ + i);
-            }
-        }
+        size_t lastNl;
+        discardedNewlines_ += CountNewlines(buf_.data(), keep, lastNl);
+
+        if (lastNl != keep)
+            lastNewlineAbs_ = static_cast<long long>(base_ + lastNl);
 
         if (keep > 0)
         {
@@ -452,13 +529,13 @@ private:
                 break;
             }
 
-            const char c = s[pos_];
-
-            if (kChars.t[static_cast<unsigned char>(c)] == 1)
-            {
+            while (pos_ < n && kChars.t[static_cast<unsigned char>(s[pos_])] == 1)
                 ++pos_;
-                continue;
-            }
+
+            if (pos_ >= n)
+                continue;  // the checks above decide: refill or end
+
+            const char c = s[pos_];
 
             if (c == '/')
             {
@@ -637,13 +714,13 @@ private:
 
         while (j < n)
         {
-            const char d = s[j];
+            const unsigned char k = kChars.t[static_cast<unsigned char>(s[j])];
 
-            if (kChars.t[static_cast<unsigned char>(d)])
-                break;
-
-            if (d == '/')
+            if (k)
             {
+                if (k != 3)
+                    break;
+
                 if (j + 1 >= n && !eof_)
                 {
                     j = n;
@@ -672,6 +749,12 @@ private:
 
     bool Eval() const { return CondEval(text_, conds_).Run(); }
 
+    // Names are lower case: a name with capitals takes the slow folding path.
+    uint32_t InternName(std::string_view name)
+    {
+        return kvname::HasUpper(name) ? kvname::Intern(name) : cache_.Intern(KVStringPool::Instance(), name);
+    }
+
     // After the '{' of a root that is not wanted: only the braces are matched, nothing is stored.
     bool SkipBody()
     {
@@ -694,13 +777,35 @@ private:
         return true;
     }
 
+    // The entries of an object are staged on `stage_` while it is parsed and handed over in one go
+    // when its closing brace is read, so every object allocates its array once, with the exact size.
     bool ParseBody(CKeyValue& obj, int depth)
+    {
+        const size_t base = stage_.size();
+        const bool ok = ParseEntries(depth);
+
+        if (ok)
+        {
+            KVInternal::Adopt(obj, stage_.data() + base, stage_.size() - base);
+        }
+        else
+        {
+            for (size_t i = base; i < stage_.size(); ++i)
+                if (stage_[i].type == CKeyValue::KeyValue)
+                    delete stage_[i].child;
+        }
+
+        stage_.erase(stage_.begin() + static_cast<std::ptrdiff_t>(base), stage_.end());
+
+        return ok;
+    }
+
+    bool ParseEntries(int depth)
     {
         if (depth > kMaxDepth)
             return Fail(tokPos_, "nesting too deep");
 
         KVStringPool& pool = KVStringPool::Instance();
-        KVInternal::Reserve(obj, 8);
 
         // A scalar is held back until the next token shows whether a condition follows it.
         struct
@@ -714,7 +819,7 @@ private:
         auto commit = [&]
         {
             if (p.has)
-                KVInternal::AddValue(obj, p.key, p.type, p.value, !p.accepted, p.iv, p.fv);
+                stage_.push_back(KVInternal::MakeScalar(p.key, p.type, p.value, !p.accepted, p.iv, p.fv));
 
             p.has = false;
         };
@@ -749,7 +854,7 @@ private:
             if (text_.empty())
                 return Fail(tokPos_, "empty key");
 
-            const uint32_t key = kvname::Intern(text_);
+            const uint32_t key = InternName(text_);
             t = Next();
             bool accepted = true;
 
@@ -778,8 +883,8 @@ private:
                     if (!ParseBody(*child, depth + 1))
                         return false;
 
-                    KVInternal::ShrinkToFit(*child);
-                    KVInternal::AddChild(obj, key, std::move(child), !accepted);
+                    stage_.push_back(KVInternal::MakeChild(key, child.get(), !accepted));
+                    child.release();
                     break;
                 }
 
@@ -789,7 +894,8 @@ private:
                 {
                     int iv;
                     float fv;
-                    const CKeyValue::Type type = kvnum::Classify(text_, iv, fv);
+                    bool canonical;
+                    const CKeyValue::Type type = kvnum::Classify(text_, iv, fv, canonical);
 
                     p.has = true;
                     p.accepted = accepted;
@@ -797,7 +903,7 @@ private:
                     p.type = type;
                     p.iv = iv;
                     p.fv = fv;
-                    p.value = pool.Intern(text_);
+                    p.value = canonical ? kInvalidSlot : cache_.Intern(pool, text_);
                     break;
                 }
             }
@@ -819,6 +925,8 @@ private:
     size_t discardedNewlines_ = 0;
     long long lastNewlineAbs_ = -1;
 
+    InternCache cache_;
+    std::vector<KVInternal::Node> stage_;
     CondTable conds_;
     bool useCond_;
     bool useEsc_;
@@ -877,7 +985,6 @@ bool CKeyValue::LoadFromFile(const char* path)
         return false;
     }
 
-    KVInternal::ShrinkToFit(tmp);
     *this = std::move(tmp);
 
     return true;

@@ -15,17 +15,43 @@
 
 namespace
 {
-uint32_t HashFNV1a(std::string_view s)
+// Equality of two byte runs. Names and values are short, so the common sizes are compared with
+// overlapping word loads instead of a library call.
+inline bool SameBytes(const char* a, const char* b, size_t n)
 {
-    uint32_t h = 2166136261u;
-
-    for (unsigned char c : s)
+    if (n >= 8)
     {
-        h ^= c;
-        h *= 16777619u;
+        uint64_t x, y;
+
+        for (; n > 8; a += 8, b += 8, n -= 8)
+        {
+            std::memcpy(&x, a, 8);
+            std::memcpy(&y, b, 8);
+
+            if (x != y)
+                return false;
+        }
+
+        std::memcpy(&x, a + n - 8, 8);
+        std::memcpy(&y, b + n - 8, 8);
+        return x == y;
     }
 
-    return h;
+    if (n >= 4)
+    {
+        uint32_t x1, y1, x2, y2;
+        std::memcpy(&x1, a, 4);
+        std::memcpy(&y1, b, 4);
+        std::memcpy(&x2, a + n - 4, 4);
+        std::memcpy(&y2, b + n - 4, 4);
+        return x1 == y1 && x2 == y2;
+    }
+
+    for (size_t i = 0; i < n; ++i)
+        if (a[i] != b[i])
+            return false;
+
+    return true;
 }
 }  // namespace
 
@@ -118,15 +144,14 @@ uint32_t KVStringPool::FindLocked(std::string_view s, uint32_t hash) const
 
         const Entry& e = entries_[slot];
 
-        if (e.hash == hash && e.length == s.size() &&
-            (s.empty() || std::memcmp(Text(e.ref), s.data(), s.size()) == 0))
+        if (e.hash == hash && e.length == s.size() && SameBytes(Text(e.ref), s.data(), s.size()))
             return slot;
     }
 }
 
 uint32_t KVStringPool::Find(std::string_view s) const
 {
-    const uint32_t hash = HashFNV1a(s);
+    const uint32_t hash = KVHashString(s);
     KV_READ_LOCK();
 
     return FindLocked(s, hash);
@@ -225,7 +250,11 @@ uint32_t KVStringPool::InsertLocked(std::string_view s, uint32_t hash)
 
 uint32_t KVStringPool::Intern(std::string_view s)
 {
-    const uint32_t hash = HashFNV1a(s);
+    return Intern(s, KVHashString(s));
+}
+
+uint32_t KVStringPool::Intern(std::string_view s, uint32_t hash)
+{
 #ifdef KV_THREAD_SAFE
     {
         // Most interns hit an existing string: try under the shared lock first.

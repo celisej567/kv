@@ -34,9 +34,12 @@
   object and a limit of 1024 chunks (4 GB of text; strings > 1 MB use one chunk each).
 * **Hash table up to 75% full** (was 50%): up to −33% table memory, find/miss unchanged. Because the
   table size is a power of two the saving shows only at some sizes (300k: yes, 1M: no).
-* **FNV-1a kept.** An 8-bytes-at-a-time hash is faster to compute and wins on long paths, but on
-  short keys lookups got ~2x slower once the pool no longer fits in cache (probe-count statistics
-  are identical; the loss is in memory access, not collisions). Short keys are the common case.
+* **A word-at-a-time multiply hash replaced FNV-1a.** An earlier try of an 8-bytes-at-a-time hash made
+  lookups ~2x slower once the pool no longer fit in cache (see the "fast hash" row above). The hash in
+  use now (`KVHashString`, 64-bit multiply mix, overlapping loads for the tail) was measured on the real
+  pool with `kv_stress poolperf` (1M strings, 1 thread): find_hit 125 vs 180 ns, intern_dup 23 vs 28 ns,
+  find_miss equal, intern_unique ~8 ns slower (it scatters the table writes that FNV kept close together
+  for sequential keys). Loading files got 3–5% faster, a 6-key `GetInt` ~10%.
 * **Hash in the table rejected**: −10% find time, but +4 bytes per bucket wipes out the memory win.
 * **Thread-safe build only**: entries in segments that never move, `shared_mutex`, and `View`
   without any lock. Reads scale ~4x on 8 threads instead of collapsing to 0.3x; threads interning

@@ -162,7 +162,8 @@ private:
         {
             struct
             {
-                uint32_t valueSlot;  // String / Int / Float: the text in the pool
+                uint32_t valueSlot;  // String: the text in the pool. Int / Float: the text too, unless it is the
+                                     // canonical one (kInvalidSlot), then it is made from the number
                 union
                 {
                     int32_t intValue;  // Int: the parsed value
@@ -211,6 +212,9 @@ private:
     void BuildIndex();
     void IndexInsert(uint32_t nameSlot, uint32_t pos);
     void FreeChildren();
+    // Fills an empty object with `n` entries at once: the exact allocation, the name index and the
+    // duplicate chains are built in one pass. Takes ownership of the children.
+    void Adopt(const Node* first, size_t n);
 
     uint32_t nameSlot_;
     bool useCond_ = true;

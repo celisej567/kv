@@ -2,6 +2,7 @@
 #include <charconv>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include <string_view>
 
@@ -9,6 +10,138 @@
 #include "kv_string_pool.h"
 
 // Assisted and commented using Claude. (sry too lazy to do them myself).
+
+namespace kvnum
+{
+// from_chars rejects a leading '+'; one is allowed, "+-5" and "++5" are not.
+inline bool StripPlus(std::string_view& s)
+{
+    if (!s.empty() && s[0] == '+')
+    {
+        s.remove_prefix(1);
+
+        if (s.empty() || s[0] == '-' || s[0] == '+')
+            return false;
+    }
+
+    return true;
+}
+
+inline bool ParseInt(std::string_view s, int& out)
+{
+    if (!StripPlus(s) || s.empty())
+        return false;
+
+    const char* end = s.data() + s.size();
+    auto r = std::from_chars(s.data(), end, out);
+
+    return r.ec == std::errc() && r.ptr == end;
+}
+
+template <class T>
+inline bool ParseFloat(std::string_view s, T& out)
+{
+    if (!StripPlus(s) || s.empty())
+        return false;
+
+    size_t i = (s[0] == '-') ? 1 : 0;
+
+    if (i >= s.size() || !((s[i] >= '0' && s[i] <= '9') || s[i] == '.'))
+        return false;
+#ifdef __cpp_lib_to_chars
+    const char* end = s.data() + s.size();
+    auto r = std::from_chars(s.data(), end, out);
+    return r.ec == std::errc() && r.ptr == end;
+#else
+    std::string tmp(s);
+    char* endp = nullptr;
+    double d = std::strtod(tmp.c_str(), &endp);
+
+    if (endp != tmp.c_str() + tmp.size())
+        return false;
+
+    out = static_cast<T>(d);
+    return true;
+#endif
+}
+
+// FormatInt / FormatFloat, into a buffer. Returns the length.
+inline size_t IntToChars(char* buf, size_t cap, int v)
+{
+    return static_cast<size_t>(std::to_chars(buf, buf + cap, v).ptr - buf);
+}
+
+// The text always has a '.' or an exponent, so that it reads back as a Float and not as an Int (2.0f -> "2.0").
+// NaN and infinity have no number text and are written as "nan" / "inf".
+inline size_t FormatFloatTo(char* buf, size_t cap, float v)
+{
+#ifdef __cpp_lib_to_chars
+    size_t n = static_cast<size_t>(std::to_chars(buf, buf + cap - 2, v).ptr - buf);
+#else
+    size_t n = static_cast<size_t>(std::snprintf(buf, cap - 2, "%.9g", static_cast<double>(v)));
+#endif
+    bool marked = false;
+
+    for (size_t i = 0; i < n; ++i)
+        if (buf[i] == '.' || buf[i] == 'e' || buf[i] == 'E' || buf[i] == 'n')
+            marked = true;
+
+    if (!marked)
+    {
+        buf[n++] = '.';
+        buf[n++] = '0';
+    }
+
+    return n;
+}
+
+// The type a value text has, as decided when a file is read (and by SetString/AddString): Int if the
+// whole text is an integer, Float if it is a decimal number, else String. `iv` / `fv` get the number.
+// `canonical` is set for a number whose text is exactly what FormatInt / FormatFloat would write for
+// it: such a node does not need its text in the pool, the text is made from the number when asked.
+inline CKeyValue::Type Classify(std::string_view text, int& iv, float& fv, bool& canonical)
+{
+    iv = 0;
+    fv = 0.f;
+    canonical = false;
+    const char c0 = text.empty() ? 0 : text[0];
+
+    if ((c0 >= '0' && c0 <= '9') || c0 == '-' || c0 == '+' || c0 == '.')
+    {
+        if (ParseInt(text, iv))
+        {
+            // a '+', a leading zero ("007") and "-0" all read back as a different text
+            const size_t d = (c0 == '-') ? 1 : 0;
+            canonical = c0 != '+' && !(text.size() > d + 1 && text[d] == '0') && !(d == 1 && text.size() == 2 && text[1] == '0');
+            return CKeyValue::Int;
+        }
+
+        if (ParseFloat(text, fv))
+        {
+            char buf[64];
+            const size_t n = FormatFloatTo(buf, sizeof buf, fv);
+            canonical = n == text.size() && std::memcmp(buf, text.data(), n) == 0;
+            return CKeyValue::Float;
+        }
+    }
+
+    return CKeyValue::String;
+}
+
+inline std::string FormatInt(int v)
+{
+    char buf[16];
+
+    return std::string(buf, IntToChars(buf, sizeof buf, v));
+}
+
+inline std::string FormatFloat(float v)
+{
+    char buf[64];
+
+    return std::string(buf, FormatFloatTo(buf, sizeof buf, v));
+}
+}  // namespace kvnum
 
 struct KVInternal
 {
@@ -73,21 +206,51 @@ struct KVInternal
         }
     }
 
+    using Node = CKeyValue::Node;
+
+    static constexpr size_t kNumberText = 64;
+
+    // The text of a String / Int / Float node. A number whose text is the canonical one has no text in
+    // the pool (valueSlot == kInvalidSlot): it is made from the number, into `buf`.
+    static std::string_view Text(const Node& n, char (&buf)[kNumberText])
+    {
+        if (n.valueSlot != kInvalidSlot)
+            return KVStringPool::Instance().View(n.valueSlot);
+
+        const size_t len = n.type == CKeyValue::Int ? kvnum::IntToChars(buf, kNumberText, n.intValue)
+                                                    : kvnum::FormatFloatTo(buf, kNumberText, n.floatValue);
+
+        return std::string_view(buf, len);
+    }
+
+    static Node MakeScalar(uint32_t name, CKeyValue::Type type, uint32_t value, bool hidden, int iv, float fv)
+    {
+        Node n{};
+        n.nameSlot = name;
+        n.type = type;
+        n.hidden = hidden;
+        StoreNumber(n, type, iv, fv);
+        n.valueSlot = value;
+        return n;
+    }
+
+    static Node MakeChild(uint32_t name, CKeyValue* child, bool hidden)
+    {
+        child->nameSlot_ = name;
+        Node n{};
+        n.nameSlot = name;
+        n.type = CKeyValue::KeyValue;
+        n.hidden = hidden;
+        n.child = child;
+        return n;
+    }
+
+    // `kv` must be empty; its entries are `first[0..n)`, the children now belong to it.
+    static void Adopt(CKeyValue& kv, const Node* first, size_t n) { kv.Adopt(first, n); }
+
     static void SetUseCond(CKeyValue& kv, bool state) { kv.useCond_ = state; }
     static void SetUseEsc(CKeyValue& kv, bool state) { kv.useEsc_ = state; }
     static bool Skipped(const CKeyValue& kv, const CKeyValue::Node& n) { return kv.Skipped(n); }
-    static void Reserve(CKeyValue& kv, size_t n) { kv.nodes_.reserve(n); }
-    static void ShrinkToFit(CKeyValue& kv)
-    {
-        kv.nodes_.shrink_to_fit();
-
-        if (kv.extra_)
-        {
-            kv.extra_->next.shrink_to_fit();
-            kv.extra_->tail.shrink_to_fit();
-        }
-    }
-
     static const std::vector<CKeyValue::Node>& Nodes(const CKeyValue& kv) { return kv.nodes_; }
 };
 
@@ -148,104 +311,3 @@ inline uint32_t Find(std::string_view name)
 }
 }  // namespace kvname
 
-namespace kvnum
-{
-// from_chars rejects a leading '+'; one is allowed, "+-5" and "++5" are not.
-inline bool StripPlus(std::string_view& s)
-{
-    if (!s.empty() && s[0] == '+')
-    {
-        s.remove_prefix(1);
-
-        if (s.empty() || s[0] == '-' || s[0] == '+')
-            return false;
-    }
-
-    return true;
-}
-
-inline bool ParseInt(std::string_view s, int& out)
-{
-    if (!StripPlus(s) || s.empty())
-        return false;
-
-    const char* end = s.data() + s.size();
-    auto r = std::from_chars(s.data(), end, out);
-
-    return r.ec == std::errc() && r.ptr == end;
-}
-
-template <class T>
-inline bool ParseFloat(std::string_view s, T& out)
-{
-    if (!StripPlus(s) || s.empty())
-        return false;
-
-    size_t i = (s[0] == '-') ? 1 : 0;
-
-    if (i >= s.size() || !((s[i] >= '0' && s[i] <= '9') || s[i] == '.'))
-        return false;
-#ifdef __cpp_lib_to_chars
-    const char* end = s.data() + s.size();
-    auto r = std::from_chars(s.data(), end, out);
-    return r.ec == std::errc() && r.ptr == end;
-#else
-    std::string tmp(s);
-    char* endp = nullptr;
-    double d = std::strtod(tmp.c_str(), &endp);
-
-    if (endp != tmp.c_str() + tmp.size())
-        return false;
-
-    out = static_cast<T>(d);
-    return true;
-#endif
-}
-
-// The type a value text has, as decided when a file is read (and by SetString/AddString): Int if the
-// whole text is an integer, Float if it is a decimal number, else String. `iv` / `fv` get the number.
-inline CKeyValue::Type Classify(std::string_view text, int& iv, float& fv)
-{
-    iv = 0;
-    fv = 0.f;
-    const char c0 = text.empty() ? 0 : text[0];
-
-    if ((c0 >= '0' && c0 <= '9') || c0 == '-' || c0 == '+' || c0 == '.')
-    {
-        if (ParseInt(text, iv))
-            return CKeyValue::Int;
-
-        if (ParseFloat(text, fv))
-            return CKeyValue::Float;
-    }
-
-    return CKeyValue::String;
-}
-
-inline std::string FormatInt(int v)
-{
-    char buf[16];
-    auto r = std::to_chars(buf, buf + sizeof buf, v);
-
-    return std::string(buf, r.ptr);
-}
-
-// The text always has a '.' or an exponent, so that it reads back as a Float and not as an Int (2.0f -> "2.0").
-// NaN and infinity have no number text and are written as "nan" / "inf".
-inline std::string FormatFloat(float v)
-{
-    char buf[64];
-#ifdef __cpp_lib_to_chars
-    auto r = std::to_chars(buf, buf + sizeof buf, v);
-    std::string s(buf, r.ptr);
-#else
-    std::snprintf(buf, sizeof buf, "%.9g", static_cast<double>(v));
-    std::string s(buf);
-#endif
-
-    if (s.find_first_of(".eEn") == std::string::npos)
-        s += ".0";
-
-    return s;
-}
-}  // namespace kvnum

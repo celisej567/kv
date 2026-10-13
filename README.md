@@ -12,7 +12,7 @@ design and with differences in behaviour (see [Differences from Source](#differe
 - Reads and writes KV text files: `//` and `/* ... */` comments, quoted and unquoted tokens, nested blocks. A `/*`
   starts a comment only at the start of a token, so a value like `hl2/custom/*` is kept as it is.
 - Types are decided from the text of a value, quotes don't matter: an integer is `Int`, a decimal number
-  is `Float`, anything else is `String` (`SetString` uses the same rule). Numbers keep their source text (written back as read) and also their parsed value, so `GetInt` / `GetFloat` don't parse again.
+  is `Float`, anything else is `String` (`SetString` uses the same rule). Numbers are written back as read and also keep their parsed value, so `GetInt` / `GetFloat` don't parse again. The text of a number is only stored when it is not the canonical one (`+5`, `007`, `1.50`, `1e3`); otherwise it is made from the value.
 - A file may hold several root objects. `CKeyValue kv;` (unnamed) loads the first and takes its name;
   `CKeyValue kv("name");` loads the first root with that name (case-insensitive), and `LoadFromFile` fails with
   `root "name" not found` if there is none. The other roots are only checked for matching braces.

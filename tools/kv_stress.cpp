@@ -140,7 +140,10 @@ static void CollectScalars(const CKeyValue& kv, std::vector<Scalar>& out) {
     KVStringPool& pool = KVStringPool::Instance();
     for (const auto& n : KVInternal::Nodes(kv)) {
         if (n.type == CKeyValue::KeyValue) CollectScalars(*n.child, out);
-        else out.push_back({&kv, std::string(pool.View(n.nameSlot)), std::string(pool.View(n.valueSlot))});
+        else {
+            char num[KVInternal::kNumberText];
+            out.push_back({&kv, std::string(pool.View(n.nameSlot)), std::string(KVInternal::Text(n, num))});
+        }
     }
 }
 

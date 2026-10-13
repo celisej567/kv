@@ -19,6 +19,8 @@ behave differently. Everything below can be reproduced with one command (see *Re
 plus `-DKV_THREAD_SAFE`, used only in the thread table; `ours -O3 native`: `-O3 -march=native`). Nothing is
 written into the Source checkout.
 
+The Rust crate `source-kv` is compared separately, see [bench/source-kv/](../source-kv/README.md).
+
 ## Where the test files come from
 
 They are **generated, not stored**: `run_compare.py` calls the generators in `tests/gen_kv.py`
@@ -241,6 +243,11 @@ numbers). `returns` is what `LoadFromBuffer` / `LoadFromFile` returned.
 * **Numbers** are range-checked: `3000000000` does not fit and becomes the int `0` (Source: wraps to
   -1294967296; this library: a float). Everything else (`"5"`, `+5`, `0x10`, `12abc`) matches Source and this library.
 * Duplicate keys and keys that differ only in case are kept side by side, as in Source (lookups ignore case through the symbol table).
+
+## source-kv (Rust, SourceRS)
+
+A comparison with the Rust crate `source-kv` (Load, Parse only, Destroy, Save, Memory, Lookups, Threads) lives in its
+own folder: [bench/source-kv/](../source-kv/README.md) holds the crate, the Rust benchmark program, `run_sourcers.py` and the results.
 
 ## Reading the numbers
 

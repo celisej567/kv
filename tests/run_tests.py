@@ -242,6 +242,26 @@ def misc_write_unwritable(cli, tmp):
     check("write-unwritable", rc == 1, f"exit {rc}, expected 1")
 
 
+def write_large_values(cli, tmp):
+    """Names and values around the writer's block and slack sizes (4 KB, 64 KB) and far beyond them."""
+    sizes = [0, 1, 100, 4095, 4096, 4097, 65535, 65536, 65537, 300000]
+    src = ['"Big"', "{"]
+    for i, n in enumerate(sizes):
+        src.append(f'    "k{i}{"n" * (70000 if i % 3 == 0 else 3)}" "{"v" * n}"')
+        src.append(f'    "num{i}" {i}')
+        src.append(f'    "sub{i}" {{ "x" "{"y" * n}" }}')
+    src.append("}")
+    path = Path(tmp) / "large_values.kv"
+    path.write_text("\n".join(src) + "\n")
+    out = Path(tmp) / "large_values_out.kv"
+    rc, _, se = run(cli, "write", path, out)
+    check("write", rc == 0, f"exit {rc}: {se}")
+    _, d1, _ = run(cli, "dump", path)
+    rc, d2, _ = run(cli, "dump", out)
+    check("reload", rc == 0 and d1 == d2 and d1 != "", "the written file does not read back the same")
+    return f"{len(sizes)} sizes up to {max(sizes) // 1000} KB"
+
+
 # ---------------------------------------------------------------------------------------------
 # Streaming parser: tokens must survive being cut by the block boundary at any position.
 # ---------------------------------------------------------------------------------------------
@@ -498,11 +518,14 @@ def perf_dedup(cli, tmp):
         raise Skip("not an optimized build")
     path = dataset(tmp, "nested", 50000)
     text = path.read_text()
-    distinct = {a or b for a, b in re.findall(r'"([^"]*)"|([^\s{}"]+)', text)}
+    tokens = {a or b for a, b in re.findall(r'"([^"]*)"|([^\s{}"]+)', text)}
+    # a number written the way the library would write it is not kept in the pool, its text is made from the value
+    canonical = re.compile(r"-?(0|[1-9][0-9]{0,8})|[0-9]+\.[0-9]*[1-9]")  # digits of a float32 round-trip up to 7
+    distinct = {t for t in tokens if not (canonical.fullmatch(t) and t != "-0" and len(t.replace(".", "").lstrip("0")) <= 7)}
     m = bench(cli, tmp, path, runs=1, lookups=0)
     n = int(m["pool_strings"])
-    check("dedup", len(distinct) <= n <= len(distinct) + 8, f"pool has {n} strings, file has {len(distinct)} distinct")
-    return f"{len(distinct)} distinct strings in file, {n} in pool"
+    check("dedup", len(distinct) <= n <= len(distinct) + 8, f"pool has {n} strings, file has {len(distinct)} distinct that need the pool")
+    return f"{len(distinct)} distinct strings in file that need the pool ({len(tokens)} tokens), {n} in pool"
 
 
 def perf_scaling(cli, tmp):
@@ -700,7 +723,7 @@ def main():
 
     tests = [(kv.stem, lambda c, t, kv=kv: test_case(c, kv, t))
              for kv in sorted(CASES.glob("*.kv"))]
-    tests += [(f.__name__, f) for f in (misc_missing_file, misc_no_args, misc_bad_command, misc_write_unwritable, misc_kvdef, misc_api, dups_gameinfo, dups_blocks,
+    tests += [(f.__name__, f) for f in (misc_missing_file, misc_no_args, misc_bad_command, misc_write_unwritable, write_large_values, misc_kvdef, misc_api, dups_gameinfo, dups_blocks,
                                          stream_boundaries, stream_long_tokens, stream_error_position,
                                          deep_branching, depth_limit)]
     tests += [("perf_wide", perf_dataset("wide", 100000)),

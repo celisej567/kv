@@ -1,6 +1,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <string_view>
 #include <vector>
@@ -13,6 +14,72 @@
 // Assisted and commented using Claude. (sry too lazy to do them myself).
 
 constexpr uint32_t kInvalidSlot = 0xFFFFFFFFu;
+
+inline uint64_t KVLoad64(const char* p)
+{
+    uint64_t v;
+    std::memcpy(&v, p, 8);
+    return v;
+}
+
+inline uint64_t KVLoad32(const char* p)
+{
+    uint32_t v;
+    std::memcpy(&v, p, 4);
+    return v;
+}
+
+inline uint64_t KVMix(uint64_t a, uint64_t b)
+{
+#if defined(__SIZEOF_INT128__)
+    const unsigned __int128 r = static_cast<unsigned __int128>(a) * b;
+    return static_cast<uint64_t>(r) ^ static_cast<uint64_t>(r >> 64);
+#else
+    const uint64_t lo = (a & 0xFFFFFFFFu) * (b & 0xFFFFFFFFu);
+    const uint64_t mid = (a >> 32) * (b & 0xFFFFFFFFu) + (a & 0xFFFFFFFFu) * (b >> 32);
+    return (lo ^ (mid << 32)) + (a >> 32) * (b >> 32) + (mid >> 32);
+#endif
+}
+
+// The pool's string hash. It reads a word at a time and mixes with a multiply instead of FNV's one
+// dependent multiply per byte; the tail is read with overlapping loads. Exposed so that a caller
+// that looks the same string up twice, or keeps its own cache in front of the pool, hashes once.
+inline uint32_t KVHashString(std::string_view s)
+{
+    constexpr uint64_t k0 = 0xa0761d6478bd642full, k1 = 0xe7037ed1a0b428dbull, k2 = 0x8ebc6af09c88c6e3ull;
+    const char* p = s.data();
+    size_t n = s.size();
+    uint64_t h = k0 ^ n;
+
+    while (n > 16)
+    {
+        h = KVMix(KVLoad64(p) ^ k1, KVLoad64(p + 8) ^ h);
+        p += 16;
+        n -= 16;
+    }
+
+    uint64_t a = 0, b = 0;
+
+    if (n >= 8)
+    {
+        a = KVLoad64(p);
+        b = KVLoad64(p + n - 8);
+    }
+    else if (n >= 4)
+    {
+        a = KVLoad32(p);
+        b = KVLoad32(p + n - 4);
+    }
+    else if (n > 0)
+    {
+        a = (uint64_t(static_cast<unsigned char>(p[0])) << 16) | (uint64_t(static_cast<unsigned char>(p[n >> 1])) << 8) |
+            static_cast<unsigned char>(p[n - 1]);
+    }
+
+    const uint64_t f = KVMix(KVMix(a ^ k1, b ^ h), k2);
+
+    return static_cast<uint32_t>(f ^ (f >> 32));
+}
 
 // Append-only pool of unique strings. Strings are never removed or moved, so slots and the
 // pointers returned by View/CStr stay valid for the lifetime of the pool.
@@ -42,6 +109,7 @@ public:
     static KVStringPool& Instance();
 
     uint32_t Intern(std::string_view s);
+    uint32_t Intern(std::string_view s, uint32_t hash);  // hash = KVHashString(s)
     uint32_t Find(std::string_view s) const;     // kInvalidSlot if absent
     std::string_view View(uint32_t slot) const;  // throws std::out_of_range for an unknown slot
     const char* CStr(uint32_t slot) const;

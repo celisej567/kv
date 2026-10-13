@@ -45,7 +45,10 @@ inline void KvDumpInto(const CKeyValue& kv, const std::string& prefix, std::stri
             case CKeyValue::Int:
             case CKeyValue::Float:
                 out += n.type == CKeyValue::String ? "\tstring\t" : n.type == CKeyValue::Int ? "\tint\t" : "\tfloat\t";
-                out += KvEscape(pool.View(n.valueSlot));
+                {
+                    char num[KVInternal::kNumberText];
+                    out += KvEscape(KVInternal::Text(n, num));
+                }
                 out += '\n';
                 break;
         }

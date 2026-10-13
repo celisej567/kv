@@ -204,6 +204,84 @@ const CKeyValue::Node* CKeyValue::FindNode(const char* name) const
     return pos < 0 ? nullptr : &nodes_[static_cast<size_t>(pos)];
 }
 
+void CKeyValue::Adopt(const Node* first, size_t n)
+{
+    nodes_.assign(first, first + n);
+    extra_.reset();
+
+    for (size_t i = 0; i < n; ++i)
+        if (first[i].hidden)
+            anyHidden_ = true;
+
+    auto markDup = [&](size_t head, size_t pos)
+    {
+        if (!extra_)
+            extra_ = std::make_unique<Extra>();
+
+        if (extra_->next.empty())
+        {
+            extra_->next.assign(n, kEnd);
+            extra_->tail.assign(n, kEnd);
+        }
+
+        const uint32_t last = extra_->tail[head] == kEnd ? static_cast<uint32_t>(head) : extra_->tail[head];
+        extra_->next[last] = static_cast<uint32_t>(pos);
+        extra_->tail[head] = static_cast<uint32_t>(pos);
+    };
+
+    if (n <= kIndexThreshold)
+    {
+        for (size_t i = 1; i < n; ++i)
+            for (size_t j = 0; j < i; ++j)
+                if (nodes_[j].nameSlot == nodes_[i].nameSlot)
+                {
+                    markDup(j, i);
+                    break;
+                }
+
+        return;
+    }
+
+    size_t size = 64;
+    unsigned bits = 6;
+
+    while (size < n * 2)
+    {
+        size <<= 1;
+        ++bits;
+    }
+
+    if (!extra_)
+        extra_ = std::make_unique<Extra>();
+
+    std::vector<uint32_t>& t = extra_->table;
+    t.assign(size, 0);
+    extra_->shift = 32 - bits;
+    const size_t mask = size - 1;
+
+    for (size_t i = 0; i < n; ++i)
+    {
+        const uint32_t name = nodes_[i].nameSlot;
+
+        for (size_t k = IndexSlot(name, extra_->shift);; k = (k + 1) & mask)
+        {
+            const uint32_t e = t[k];
+
+            if (e == 0)
+            {
+                t[k] = static_cast<uint32_t>(i + 1);
+                break;
+            }
+
+            if (nodes_[e - 1].nameSlot == name)
+            {
+                markDup(e - 1, i);
+                break;
+            }
+        }
+    }
+}
+
 CKeyValue::Node& CKeyValue::PushNode(uint32_t nameSlot, int firstSame)
 {
     const uint32_t newPos = static_cast<uint32_t>(nodes_.size());
@@ -274,7 +352,9 @@ CKeyValue::Node& CKeyValue::Append(uint32_t nameSlot)
 
 std::string CKeyValue::StringOf(const Node& n)
 {
-    return std::string(Pool().View(n.valueSlot));
+    char buf[KVInternal::kNumberText];
+
+    return std::string(KVInternal::Text(n, buf));
 }
 
 int CKeyValue::IntOf(const Node& n, int def)
@@ -298,7 +378,9 @@ int CKeyValue::IntOf(const Node& n, int def)
 
         double d = 0.0;
 
-        if (!kvnum::ParseFloat(Pool().View(n.valueSlot), d) || !(d > -2147483649.0 && d < 2147483648.0))
+        char buf[KVInternal::kNumberText];
+
+        if (!kvnum::ParseFloat(KVInternal::Text(n, buf), d) || !(d > -2147483649.0 && d < 2147483648.0))
             return def;
 
         return static_cast<int>(d);
@@ -416,22 +498,21 @@ void CKeyValue::SetString(const char* name, const char* value)
     const std::string_view text = value ? value : "";
     int iv;
     float fv;
-    const Type type = kvnum::Classify(text, iv, fv);
-    KVInternal::SetValue(*this, k, type, Pool().Intern(text), iv, fv);
+    bool canonical;
+    const Type type = kvnum::Classify(text, iv, fv, canonical);
+    KVInternal::SetValue(*this, k, type, canonical ? kInvalidSlot : Pool().Intern(text), iv, fv);
 }
 
 void CKeyValue::SetInt(const char* name, int value)
 {
     const uint32_t k = kvname::Intern(name ? name : "");
-    const uint32_t v = Pool().Intern(kvnum::FormatInt(value));
-    KVInternal::SetValue(*this, k, Int, v, value);
+    KVInternal::SetValue(*this, k, Int, kInvalidSlot, value);
 }
 
 void CKeyValue::SetFloat(const char* name, float value)
 {
     const uint32_t k = kvname::Intern(name ? name : "");
-    const uint32_t v = Pool().Intern(kvnum::FormatFloat(value));
-    KVInternal::SetValue(*this, k, Float, v, 0, value);
+    KVInternal::SetValue(*this, k, Float, kInvalidSlot, 0, value);
 }
 
 void CKeyValue::SetKeyValue(const char* name, const CKeyValue* value)
@@ -456,22 +537,21 @@ void CKeyValue::AddString(const char* name, const char* value)
     const std::string_view text = value ? value : "";
     int iv;
     float fv;
-    const Type type = kvnum::Classify(text, iv, fv);
-    KVInternal::AddValue(*this, k, type, Pool().Intern(text), false, iv, fv);
+    bool canonical;
+    const Type type = kvnum::Classify(text, iv, fv, canonical);
+    KVInternal::AddValue(*this, k, type, canonical ? kInvalidSlot : Pool().Intern(text), false, iv, fv);
 }
 
 void CKeyValue::AddInt(const char* name, int value)
 {
     const uint32_t k = kvname::Intern(name ? name : "");
-    const uint32_t v = Pool().Intern(kvnum::FormatInt(value));
-    KVInternal::AddValue(*this, k, Int, v, false, value);
+    KVInternal::AddValue(*this, k, Int, kInvalidSlot, false, value);
 }
 
 void CKeyValue::AddFloat(const char* name, float value)
 {
     const uint32_t k = kvname::Intern(name ? name : "");
-    const uint32_t v = Pool().Intern(kvnum::FormatFloat(value));
-    KVInternal::AddValue(*this, k, Float, v, false, 0, value);
+    KVInternal::AddValue(*this, k, Float, kInvalidSlot, false, 0, value);
 }
 
 void CKeyValue::AddKeyValue(const char* name, const CKeyValue* value)

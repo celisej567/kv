@@ -35,3 +35,7 @@ saved.kv
 
 # local-only P2CE comparison
 /bench/p2ce/
+
+# bench/source-kv: the crate itself is not part of this repository, only the benchmark for it
+/bench/source-kv/crate/*
+!/bench/source-kv/crate/README.md

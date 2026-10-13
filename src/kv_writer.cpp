@@ -1,4 +1,6 @@
 #include <cstdio>
+#include <cstring>
+#include <memory>
 #include <string>
 
 #include "keyvalue.h"
@@ -6,26 +8,52 @@
 
 namespace
 {
+// Output buffer written in blocks. Appends are plain memcpy into a buffer that is grown when needed;
+// there is no per-character bookkeeping.
 class Out
 {
 public:
-    Out(FILE* f, bool esc) : f_(f), esc_(esc) { buf_.reserve(kBlock + 4096); }
+    Out(FILE* f, bool esc) : f_(f), esc_(esc), d_(new char[kBlock + kSlack]), cap_(kBlock + kSlack) {}
 
-    void Put(char c) { buf_ += c; }
-    void Put(std::string_view s) { buf_.append(s.data(), s.size()); }
-    void Indent(int level) { buf_.append(static_cast<size_t>(level) * 4, ' '); }
+    // Room for `n` more bytes; returns where they go. The caller then calls Commit.
+    char* Room(size_t n)
+    {
+        if (cap_ - size_ < n)
+            Grow(n);
+
+        return d_.get() + size_;
+    }
+
+    void Commit(size_t n) { size_ += n; }
+
+    void Put(char c) { *Room(1) = c, Commit(1); }
+
+    void Put(std::string_view s)
+    {
+        std::memcpy(Room(s.size()), s.data(), s.size());
+        Commit(s.size());
+    }
+
+    void Indent(int level)
+    {
+        const size_t n = static_cast<size_t>(level) * 4;
+        std::memset(Room(n), ' ', n);
+        Commit(n);
+    }
 
     void Quoted(std::string_view s)
     {
-        buf_ += '"';
-
         if (!esc_)
         {
-            buf_.append(s.data(), s.size());
-            buf_ += '"';
+            char* p = Room(s.size() + 2);
+            *p++ = '"';
+            std::memcpy(p, s.data(), s.size());
+            p[s.size()] = '"';
+            Commit(s.size() + 2);
             return;
         }
 
+        Put('"');
         size_t run = 0;
 
         for (size_t i = 0; i < s.size(); ++i)
@@ -53,38 +81,86 @@ public:
                     continue;
             }
 
-            buf_.append(s.data() + run, i - run);
-            buf_.append(esc, 2);
+            Put(std::string_view(s.data() + run, i - run));
+            Put(std::string_view(esc, 2));
             run = i + 1;
         }
 
-        buf_.append(s.data() + run, s.size() - run);
-        buf_ += '"';
+        Put(std::string_view(s.data() + run, s.size() - run));
+        Put('"');
     }
+
+    // `indent "name" value`, value quoted or not, and the line end: one room check for the whole line.
+    // Only without escape sequences (then nothing has to be translated).
+    void Line(int level, std::string_view name, std::string_view value, bool quoteValue)
+    {
+        const size_t indent = static_cast<size_t>(level) * 4;
+        char* p = Room(indent + name.size() + value.size() + 6);
+        char* const start = p;
+        std::memset(p, ' ', indent);
+        p += indent;
+        *p++ = '"';
+        std::memcpy(p, name.data(), name.size());
+        p += name.size();
+        *p++ = '"';
+        *p++ = ' ';
+
+        if (quoteValue)
+            *p++ = '"';
+
+        std::memcpy(p, value.data(), value.size());
+        p += value.size();
+
+        if (quoteValue)
+            *p++ = '"';
+
+        *p++ = '\n';
+        Commit(static_cast<size_t>(p - start));
+
+        if (size_ >= kBlock)
+            Flush();
+    }
+
+    bool escapes() const { return esc_; }
 
     void EndLine()
     {
-        buf_ += '\n';
+        Put('\n');
 
-        if (buf_.size() >= kBlock)
+        if (size_ >= kBlock)
             Flush();
     }
 
     void Flush()
     {
-        if (!buf_.empty() && ok_)
-            ok_ = std::fwrite(buf_.data(), 1, buf_.size(), f_) == buf_.size();
+        if (size_ && ok_)
+            ok_ = std::fwrite(d_.get(), 1, size_, f_) == size_;
 
-        buf_.clear();
+        size_ = 0;
     }
 
     bool ok() const { return ok_; }
 
 private:
     static constexpr size_t kBlock = 64 * 1024;
+    static constexpr size_t kSlack = 4096;
+
+    void Grow(size_t n)
+    {
+        Flush();
+
+        if (cap_ >= n)
+            return;
+
+        d_.reset(new char[n]);
+        cap_ = n;
+    }
+
     FILE* f_;
     bool esc_;
-    std::string buf_;
+    std::unique_ptr<char[]> d_;
+    size_t cap_;
+    size_t size_ = 0;
     bool ok_ = true;
 };
 
@@ -100,6 +176,13 @@ void WriteObject(Out& out, const CKeyValue& kv, int level)
         if (KVInternal::Skipped(kv, n))
             continue;
 
+        if (n.type != CKeyValue::KeyValue && !out.escapes())
+        {
+            char num[KVInternal::kNumberText];
+            out.Line(level + 1, pool.View(n.nameSlot), KVInternal::Text(n, num), n.type == CKeyValue::String);
+            continue;
+        }
+
         out.Indent(level + 1);
         out.Quoted(pool.View(n.nameSlot));
 
@@ -111,11 +194,13 @@ void WriteObject(Out& out, const CKeyValue& kv, int level)
         else
         {
             out.Put(' ');
+            char num[KVInternal::kNumberText];
+            const std::string_view text = KVInternal::Text(n, num);
 
             if (n.type == CKeyValue::String)
-                out.Quoted(pool.View(n.valueSlot));
+                out.Quoted(text);
             else
-                out.Put(pool.View(n.valueSlot));
+                out.Put(text);
 
             out.EndLine();
         }

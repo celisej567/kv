@@ -29,10 +29,12 @@ Contents
   a string, or another `CKeyValue` (a block). A name may occur many times; the order is the order of insertion
   (the order in the file after a load).
 * **Every string lives in one global pool** (`KVStringPool`): names and values alike. A tree stores only
-  32-bit slot numbers. The pool only grows; nothing in it is ever freed.
+  32-bit slot numbers. The one exception is a number whose text is the canonical one (what `SetInt` / `SetFloat`
+  would write: `42`, `-7`, `1.5`, `2.0`): it keeps no text, `GetString` and the writer make it from the value.
+  `007`, `+5`, `-0`, `1.50`, `1e3` are not canonical and keep their text in the pool. The pool only grows; nothing in it is ever freed.
 * **Names are case-insensitive** and are stored in lower case (ASCII `A-Z` only). **Values keep their case.**
 * The **type of a value is decided from its text when a file is read** (quotes do not matter). `SetString`/`AddString` decide
-  it from the text the same way; `SetInt`/`SetFloat` set it from the function you call. A number keeps its **text** (written back exactly as it was read) and its
+  it from the text the same way; `SetInt`/`SetFloat` set it from the function you call. A number is **written back exactly as it was read** and keeps its
   **parsed value** (so `GetInt`/`GetFloat` do not parse again).
 * An entry whose condition (`[$X]`) is false is **kept but hidden**. While `UsesConditionals()` is true (the
   default) every function treats a hidden entry as if it did not exist.
@@ -49,7 +51,7 @@ empty string, so the pool exists before any tree does and is destroyed after eve
   A string larger than 1 MB gets a chunk of its own. A string is stored with a terminating `'\0'`.
 * **Entries** are 12 bytes: `{ref, length, hash}`, where `ref = chunk << 22 | offset`. Slot numbers are the
   index of the entry (0, 1, 2, ... in order of first interning).
-* **Lookup table**: open addressing, linear probing, FNV-1a hash, doubled when it would pass 75% full.
+* **Lookup table**: open addressing, linear probing, a word-at-a-time multiply hash (`KVHashString`), doubled when it would pass 75% full.
 * Strings are unique: interning the same bytes twice gives the same slot. Comparison is **byte for byte and
   case-sensitive**. Case folding of *names* is done above the pool (see section 3), not inside it.
 
@@ -57,6 +59,7 @@ empty string, so the pool exists before any tree does and is destroyed after eve
 
 | function | behaviour |
 |---|---|
+| `Intern(sv, hash)` | The same with the hash already computed (`hash` must be `KVHashString(sv)`); used by the parser. |
 | `Intern(sv)` | Returns the slot of `sv`, adding it if it is new. Works for any bytes, including embedded `'\0'` and the empty string. Never fails for a string that fits (see limits). |
 | `Find(sv)` | Slot of `sv`, or `kInvalidSlot` (`0xFFFFFFFF`) if it is not there. Does not add anything. |
 | `View(slot)` | `string_view` of the stored bytes (length known, so embedded `'\0'` is kept). **Throws `std::out_of_range`** for a slot that does not exist. |
