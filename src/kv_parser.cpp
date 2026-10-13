@@ -787,18 +787,9 @@ private:
                 // the type comes from the text, quotes don't matter
                 case Tok::Bare:
                 {
-                    int iv = 0;
-                    float fv = 0.f;
-                    CKeyValue::Type type = CKeyValue::String;
-                    const char c0 = text_.empty() ? 0 : text_[0];
-
-                    if ((c0 >= '0' && c0 <= '9') || c0 == '-' || c0 == '+' || c0 == '.')
-                    {
-                        if (kvnum::ParseInt(text_, iv))
-                            type = CKeyValue::Int;
-                        else if (kvnum::ParseFloat(text_, fv))
-                            type = CKeyValue::Float;
-                    }
+                    int iv;
+                    float fv;
+                    const CKeyValue::Type type = kvnum::Classify(text_, iv, fv);
 
                     p.has = true;
                     p.accepted = accepted;

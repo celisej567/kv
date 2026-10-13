@@ -10,9 +10,10 @@ struct KVInternal;
 
 // Tree of key/value pairs. All strings (names and values) live in the global KVStringPool and the
 // tree stores only slot numbers and types. The type of a value comes from its text, quotes don't
-// matter: an integer is Int, a decimal number is Float, anything else is String. Numbers keep their
-// source text (written back as read) and the parsed value, which is computed once on load / Set*. Names are case-insensitive and stored in lower case; values
-// are kept as they are. A name may occur many times.
+// matter: an integer is Int, a decimal number is Float, anything else is String; SetString/AddString
+// apply the same rule to the text they are given. Numbers keep their source text (written back as
+// read) and the parsed value, which is computed once on load / Set*. Names are case-insensitive and
+// stored in lower case; values are kept as they are. A name may occur many times.
 class CKeyValue
 {
 public:

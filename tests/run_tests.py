@@ -178,7 +178,8 @@ API_SCENARIOS = {"move_assign_from_descendant", "copy_assign_from_descendant", "
                  "uc_copy_independent", "uc_write", "uc_survives_load", "uc_clear", "names_case_insensitive",
                  "getbool", "int_truncates_float", "remove_key", "remove_key_big", "remove_key_all", "remove_key_hidden",
                  "uses_escape_sequences", "root_unnamed_takes_first", "root_named_finds_own",
-                 "root_named_not_found", "root_other_roots_checked", "name_with_space", "numbers_kept_in_node"}
+                 "root_named_not_found", "root_other_roots_checked", "name_with_space", "numbers_kept_in_node",
+                 "setstring_classifies", "getstring_on_types"}
 
 
 def misc_api(cli, tmp):

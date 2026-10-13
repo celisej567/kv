@@ -31,8 +31,8 @@ Contents
 * **Every string lives in one global pool** (`KVStringPool`): names and values alike. A tree stores only
   32-bit slot numbers. The pool only grows; nothing in it is ever freed.
 * **Names are case-insensitive** and are stored in lower case (ASCII `A-Z` only). **Values keep their case.**
-* The **type of a value is decided from its text when a file is read** (quotes do not matter). `Set*`/`Add*` set
-  the type from the function you call. A number keeps its **text** (written back exactly as it was read) and its
+* The **type of a value is decided from its text when a file is read** (quotes do not matter). `SetString`/`AddString` decide
+  it from the text the same way; `SetInt`/`SetFloat` set it from the function you call. A number keeps its **text** (written back exactly as it was read) and its
   **parsed value** (so `GetInt`/`GetFloat` do not parse again).
 * An entry whose condition (`[$X]`) is false is **kept but hidden**. While `UsesConditionals()` is true (the
   default) every function treats a hidden entry as if it did not exist.
@@ -163,8 +163,9 @@ is a `String`. A **block** (`{ ... }`) is `KeyValue`.
 The text is kept exactly as written: `"007"` is an `Int` whose text is `007` (`GetInt` is 7, `GetString` is
 `"007"`), `1.50` stays `1.50`, `+5` stays `+5`, `-0` is an `Int` with value 0.
 
-`Set*`/`Add*` do **not** look at the text: the type is the one of the function you call (see section 5). The
-types are therefore guaranteed to agree with the text only for what was read from a file.
+`SetString`/`AddString` use **the same rules** on the text you pass, so the tree is the same whether a value
+came from a file or from `SetString("n", "42")` (an `Int`). `SetInt`/`SetFloat` (and `AddInt`/`AddFloat`) set
+the type of the function you call.
 
 ### Stored value
 
@@ -181,13 +182,18 @@ range goes back to the text, so that it truncates what was written and not what 
 | call | on `Int` | on `Float` | on `String` | on a block |
 |---|---|---|---|---|
 | `GetString(name, def="")` | the text (`"007"`) | the text (`"1.50"`) | the text | `def` |
-| `GetInt(name, def=0)` | the value | truncated toward zero; out of `int` range -> `def` | `def` (even for `"42"` set by `SetString`) | `def` |
+| `GetInt(name, def=0)` | the value | truncated toward zero; out of `int` range -> `def` | `def` (a `String` entry, such as `abc` or `0x10`, is never read as a number) | `def` |
 | `GetFloat(name, def=0)` | the value as `float` | the value | `def` | `def` |
 | `GetBool(name, def=false)` | `value != 0` | `value != 0` | `"true"` -> true, `"false"` -> false (any case); anything else -> `def` | `def` |
 
 Other details:
 
 * `GetString` with `def == nullptr` returns `""`. A missing name (or a `nullptr` name) returns `def`.
+* `GetString` on a number returns **the text as it is stored**, not a reformatting of the value: a file value
+  `007` gives `"007"`, `1.50` gives `"1.50"`, `+5` gives `"+5"`, a quoted `"5"` gives `"5"`; `SetInt(-5)` gives
+  `"-5"`, `SetFloat(2.0f)` gives `"2.0"`, `SetFloat(0.1f)` gives `"0.1"`.
+* `GetString` on a **block** returns `def` (`""` if `def` is `nullptr`); it never fails and does not print the block.
+  `Child::GetString(def)` behaves the same.
 * `GetInt` on a `Float`: `3.9` -> 3, `-3.9` -> -3, `2147483647.0` -> 2147483647, `3000000000.5` -> `def`.
 * `GetFloat` on an `Int` converts (very large ints lose precision, as in any `int` -> `float`).
 * A quoted `"true"` is a `String`, so `GetBool` handles it by the word; `1`, `"1"` and `1.0` are numbers.
@@ -238,18 +244,18 @@ kv.RemoveKeys("K");          // removes both, returns 2
 
 | call | type | text kept |
 |---|---|---|
-| `SetString` / `AddString` | `String` | exactly the text you pass (`nullptr` -> `""`) |
+| `SetString` / `AddString` | decided from the text, like a file read: `Int`, `Float` or `String` | exactly the text you pass (`nullptr` -> `""`) |
 | `SetInt` / `AddInt` | `Int` | decimal text of the value |
-| `SetFloat` / `AddFloat` | `Float` | shortest text that reads back to the same `float` (`to_chars`): `0.1f` -> `0.1`, `2.0f` -> `2` |
+| `SetFloat` / `AddFloat` | `Float` | shortest text that reads back to the same `float` (`to_chars`), with `.0` added when it would look like an integer: `0.1f` -> `0.1`, `2.0f` -> `2.0`, `-0.0f` -> `-0.0`, `1e10f` -> `1e+10` |
 | `SetKeyValue` / `AddKeyValue` | block | a **copy** of the object you pass |
 
 Consequences worth knowing:
 
-* **`SetString("a", "42")` makes a `String`, not an `Int`.** `GetInt("a")` returns the default until the tree is
-  written and read again; after a reload the same text is classified as an `Int`. If you want a number, call
-  `SetInt`/`SetFloat`.
-* `SetFloat(2.0f)` is a `Float` entry whose text is `2` (the text looks like an integer; after a reload it
-  becomes an `Int`).
+* **`SetString("a", "42")` makes an `Int`** (text `42`), `SetString("a", "3.5")` a `Float`, `SetString("a", "abc")` a
+  `String`. Only the *whole* text counts: `" 42"`, `"0x10"`, `"42abc"` and `""` stay strings. The type therefore
+  does not change when the tree is written and read back (`"a" 42` is written for the `Int`, without quotes).
+  If you need the string `"42"` to stay a string you cannot: the library has no way to mark a number-like text
+  as a string, a file read has none either.
 * `SetFloat(NaN)` / `SetFloat(inf)` store the value you gave (so `GetFloat` returns it), but the text is `nan` /
   `inf`, which a later load reads back as a `String`.
 * Replacing an entry may change its type (`SetInt` over a string, `SetString` over a block). When the old entry
@@ -465,7 +471,7 @@ The error line/column point at the offending token (for end-of-file errors, at t
 * Escapes follow `UsesEscapeSequences` (section 8).
 * An unnamed object writes `""` as its name; that file loads into an unnamed object and stays unnamed.
 * The output is not byte-identical to the input (comments, quoting and layout are not kept), but loading it
-  gives the same tree (with the type caveat of `SetString`, section 5).
+  gives the same tree, except for `SetFloat(NaN)` / `SetFloat(inf)`, which read back as strings (section 5).
 
 ---
 
@@ -526,7 +532,8 @@ The error line/column point at the offending token (for end-of-file errors, at t
    `CKeyValue kv;` to load a file whose root name you do not know.
 2. Copy assignment and move assignment **rename** the target.
 3. A moved-from object is empty but keeps its name and flags.
-4. `SetString("n", "42")` is a `String`; `GetInt` gives the default until the file is written and read again.
+4. `SetString("n", "42")` is an `Int` (the text decides, as when reading a file); a number-looking text cannot be
+   stored as a `String`, and it is written without quotes.
 5. `GetInt` of a `Float` truncates toward zero; `GetInt` of a `String` is always the default.
 6. `Get*` with duplicates sees only the first; `Set*` replaces only the first visible; `RemoveKey` removes only the
    first visible.

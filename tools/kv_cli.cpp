@@ -617,6 +617,45 @@ static int Api() {
         report("numbers_kept_in_node", ok);
         std::remove(tmp.c_str());
     }
+    {   // SetString / AddString decide the type from the text, like a file read does
+        CKeyValue kv("R");
+        kv.SetString("i", "42");
+        kv.SetString("f", "3.5");
+        kv.SetString("s", "hello");
+        kv.SetString("e", "");
+        kv.SetString("sp", " 42");
+        kv.SetString("hex", "0x10");
+        kv.AddString("a", "7");
+        kv.AddString("a", "7.25");
+        auto type = [&](const char* n) { return (*kv.Children(n).begin()).GetType(); };
+        bool ok = type("i") == CKeyValue::Int && type("f") == CKeyValue::Float && type("s") == CKeyValue::String && type("e") == CKeyValue::String;
+        ok = ok && type("sp") == CKeyValue::String && type("hex") == CKeyValue::String;
+        ok = ok && kv.GetInt("i", -1) == 42 && kv.GetFloat("f", -1) == 3.5f && kv.GetInt("f", -1) == 3 && kv.GetInt("s", -1) == -1;
+        ok = ok && kv.GetBool("i") && kv.GetInt("a") == 7;
+        report("setstring_classifies", ok);
+    }
+    {   // GetString on every type: numbers give their text as written, a block gives the default
+        const std::string tmp = "/tmp/kv_cli_getstring.kv";
+        if (FILE* f = std::fopen(tmp.c_str(), "wb")) {
+            std::fputs("\"R\" { i 007 f 1.50 q \"5\" s abc b { x 1 } }\n", f);
+            std::fclose(f);
+        }
+        CKeyValue kv;
+        bool ok = kv.LoadFromFile(tmp.c_str());
+        ok = ok && kv.GetString("i") == "007" && kv.GetString("f") == "1.50" && kv.GetString("q") == "5" && kv.GetString("s") == "abc";
+        ok = ok && kv.GetString("b").empty() && kv.GetString("b", "dflt") == "dflt" && kv.GetString("b", nullptr).empty();
+        ok = ok && kv.GetString("none", "dflt") == "dflt";
+        kv.SetInt("n", -5);
+        kv.SetFloat("g", 2.0f);
+        kv.SetFloat("h", 0.1f);
+        ok = ok && kv.GetString("n") == "-5" && kv.GetString("g") == "2.0" && kv.GetString("h") == "0.1";
+        for (const auto c : kv.Children()) {
+            if (std::string(c.Name()) == "b") ok = ok && c.GetString("x") == "x" && c.GetString().empty();
+            if (std::string(c.Name()) == "i") ok = ok && c.GetString("x") == "007";
+        }
+        report("getstring_on_types", ok);
+        std::remove(tmp.c_str());
+    }
     {   // empty ranges
         CKeyValue kv("R");
         bool any = false;

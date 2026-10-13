@@ -413,8 +413,11 @@ CKeyValue* CKeyValue::GetKeyValue(const char* name, const CKeyValue* def)
 void CKeyValue::SetString(const char* name, const char* value)
 {
     const uint32_t k = kvname::Intern(name ? name : "");
-    const uint32_t v = Pool().Intern(value ? value : "");
-    KVInternal::SetValue(*this, k, String, v);
+    const std::string_view text = value ? value : "";
+    int iv;
+    float fv;
+    const Type type = kvnum::Classify(text, iv, fv);
+    KVInternal::SetValue(*this, k, type, Pool().Intern(text), iv, fv);
 }
 
 void CKeyValue::SetInt(const char* name, int value)
@@ -450,8 +453,11 @@ void CKeyValue::SetKeyValue(const char* name, const CKeyValue* value)
 void CKeyValue::AddString(const char* name, const char* value)
 {
     const uint32_t k = kvname::Intern(name ? name : "");
-    const uint32_t v = Pool().Intern(value ? value : "");
-    KVInternal::AddValue(*this, k, String, v);
+    const std::string_view text = value ? value : "";
+    int iv;
+    float fv;
+    const Type type = kvnum::Classify(text, iv, fv);
+    KVInternal::AddValue(*this, k, type, Pool().Intern(text), false, iv, fv);
 }
 
 void CKeyValue::AddInt(const char* name, int value)

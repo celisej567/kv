@@ -202,6 +202,26 @@ inline bool ParseFloat(std::string_view s, T& out)
 #endif
 }
 
+// The type a value text has, as decided when a file is read (and by SetString/AddString): Int if the
+// whole text is an integer, Float if it is a decimal number, else String. `iv` / `fv` get the number.
+inline CKeyValue::Type Classify(std::string_view text, int& iv, float& fv)
+{
+    iv = 0;
+    fv = 0.f;
+    const char c0 = text.empty() ? 0 : text[0];
+
+    if ((c0 >= '0' && c0 <= '9') || c0 == '-' || c0 == '+' || c0 == '.')
+    {
+        if (ParseInt(text, iv))
+            return CKeyValue::Int;
+
+        if (ParseFloat(text, fv))
+            return CKeyValue::Float;
+    }
+
+    return CKeyValue::String;
+}
+
 inline std::string FormatInt(int v)
 {
     char buf[16];
@@ -210,15 +230,22 @@ inline std::string FormatInt(int v)
     return std::string(buf, r.ptr);
 }
 
+// The text always has a '.' or an exponent, so that it reads back as a Float and not as an Int (2.0f -> "2.0").
+// NaN and infinity have no number text and are written as "nan" / "inf".
 inline std::string FormatFloat(float v)
 {
     char buf[64];
 #ifdef __cpp_lib_to_chars
     auto r = std::to_chars(buf, buf + sizeof buf, v);
-    return std::string(buf, r.ptr);
+    std::string s(buf, r.ptr);
 #else
     std::snprintf(buf, sizeof buf, "%.9g", static_cast<double>(v));
-    return std::string(buf);
+    std::string s(buf);
 #endif
+
+    if (s.find_first_of(".eEn") == std::string::npos)
+        s += ".0";
+
+    return s;
 }
 }  // namespace kvnum
