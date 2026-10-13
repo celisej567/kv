@@ -15,8 +15,7 @@
 
 namespace
 {
-// Equality of two byte runs. Names and values are short, so the common sizes are compared with
-// overlapping word loads instead of a library call.
+// Byte-run equality; short runs use overlapping word loads instead of memcmp.
 inline bool SameBytes(const char* a, const char* b, size_t n)
 {
     if (n >= 8)
@@ -203,7 +202,7 @@ uint32_t KVStringPool::Store(std::string_view s)
     }
     else
     {
-        // Chunk grows until the string is at most a quarter of it, which bounds the wasted tail.
+        // Chunk grows until the string is at most a quarter of it (bounds the wasted tail).
         while (nextChunk_ < kMaxChunk && need > nextChunk_ / 4)
             nextChunk_ *= 2;
 

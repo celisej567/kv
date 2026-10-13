@@ -41,9 +41,7 @@ inline uint64_t KVMix(uint64_t a, uint64_t b)
 #endif
 }
 
-// The pool's string hash. It reads a word at a time and mixes with a multiply instead of FNV's one
-// dependent multiply per byte; the tail is read with overlapping loads. Exposed so that a caller
-// that looks the same string up twice, or keeps its own cache in front of the pool, hashes once.
+// The pool's string hash (word at a time). Exposed so a caller hashes once for repeated lookups.
 inline uint32_t KVHashString(std::string_view s)
 {
     constexpr uint64_t k0 = 0xa0761d6478bd642full, k1 = 0xe7037ed1a0b428dbull, k2 = 0x8ebc6af09c88c6e3ull;
@@ -81,10 +79,9 @@ inline uint32_t KVHashString(std::string_view s)
     return static_cast<uint32_t>(f ^ (f >> 32));
 }
 
-// Append-only pool of unique strings. Strings are never removed or moved, so slots and the
-// pointers returned by View/CStr stay valid for the lifetime of the pool.
-// With KV_THREAD_SAFE: Find and the first lookup of Intern take a shared lock, inserts an
-// exclusive one, and View/CStr no lock at all.
+// Append-only pool of unique strings: slots and View/CStr pointers stay valid for the pool's life.
+// KV_THREAD_SAFE: Find and the first Intern lookup take a shared lock, inserts an exclusive one,
+// View/CStr none.
 class KVStringPool
 {
 public:
@@ -132,8 +129,7 @@ private:
     static constexpr unsigned kMaxLoadPercent = 75;
 
 #ifdef KV_THREAD_SAFE
-    // Segment k holds (256 << k) entries and never moves, so readers need no lock. `size` is
-    // published with release/acquire: a reader that sees a slot below it sees the entry too.
+    // Segment k holds (256 << k) entries and never moves; `size` is published release/acquire.
     struct Entries
     {
         static constexpr unsigned kBaseBits = 8;

@@ -21,21 +21,34 @@ CKeyValue::CKeyValue(const char* name) : nameSlot_(kvname::Intern(name ? name : 
 CKeyValue::CKeyValue(const CKeyValue& other)
     : nameSlot_(other.nameSlot_), useCond_(other.useCond_), useEsc_(other.useEsc_), anyHidden_(other.anyHidden_)
 {
-    nodes_ = other.nodes_;
+    nodes_ = other.nodes_;  // the children are still `other`'s, they are copied one by one below
+    size_t copied = 0;
 
-    for (Node& n : nodes_)
-        if (n.type == KeyValue)
-            n.child = new CKeyValue(*n.child);
-
-    if (other.HasDups())
+    try
     {
-        extra_ = std::make_unique<Extra>();
-        extra_->next = other.extra_->next;
-        extra_->tail = other.extra_->tail;
-    }
+        for (; copied < nodes_.size(); ++copied)
+            if (nodes_[copied].type == KeyValue)
+                nodes_[copied].child = new CKeyValue(*nodes_[copied].child);
 
-    if (nodes_.size() > kIndexThreshold)
-        BuildIndex();
+        if (other.HasDups())
+        {
+            extra_ = std::make_unique<Extra>();
+            extra_->next = other.extra_->next;
+            extra_->tail = other.extra_->tail;
+        }
+
+        if (nodes_.size() > kIndexThreshold)
+            BuildIndex();
+    }
+    catch (...)
+    {
+        // The destructor does not run if the constructor throws: free the copies so far.
+        for (size_t i = 0; i < copied; ++i)
+            if (nodes_[i].type == KeyValue)
+                delete nodes_[i].child;
+
+        throw;
+    }
 }
 
 CKeyValue::CKeyValue(CKeyValue&& other) noexcept
@@ -179,8 +192,7 @@ void CKeyValue::IndexInsert(uint32_t nameSlot, uint32_t pos)
     t[i] = pos + 1;
 }
 
-// Stored names are lower case, so the name is tried as given first and folded only if that misses
-// and it has capitals: the common lookup pays nothing for case-insensitivity.
+// Names are stored lower case: try as given, fold only on a miss when it has capitals.
 int CKeyValue::FindByName(const char* name, bool visibleOnly) const
 {
     const std::string_view v = name ? name : "";
@@ -206,80 +218,85 @@ const CKeyValue::Node* CKeyValue::FindNode(const char* name) const
 
 void CKeyValue::Adopt(const Node* first, size_t n)
 {
-    nodes_.assign(first, first + n);
-    extra_.reset();
+    // Allocations happen on the side, then no-fail swaps commit: on a throw the object is untouched.
+    std::vector<Node> fresh(first, first + n);
+    std::unique_ptr<Extra> extra;
+    bool hidden = false;
 
     for (size_t i = 0; i < n; ++i)
-        if (first[i].hidden)
-            anyHidden_ = true;
+        hidden = hidden || first[i].hidden;
 
     auto markDup = [&](size_t head, size_t pos)
     {
-        if (!extra_)
-            extra_ = std::make_unique<Extra>();
+        if (!extra)
+            extra = std::make_unique<Extra>();
 
-        if (extra_->next.empty())
+        if (extra->next.empty())
         {
-            extra_->next.assign(n, kEnd);
-            extra_->tail.assign(n, kEnd);
+            extra->next.assign(n, kEnd);
+            extra->tail.assign(n, kEnd);
         }
 
-        const uint32_t last = extra_->tail[head] == kEnd ? static_cast<uint32_t>(head) : extra_->tail[head];
-        extra_->next[last] = static_cast<uint32_t>(pos);
-        extra_->tail[head] = static_cast<uint32_t>(pos);
+        const uint32_t last = extra->tail[head] == kEnd ? static_cast<uint32_t>(head) : extra->tail[head];
+        extra->next[last] = static_cast<uint32_t>(pos);
+        extra->tail[head] = static_cast<uint32_t>(pos);
     };
 
     if (n <= kIndexThreshold)
     {
         for (size_t i = 1; i < n; ++i)
             for (size_t j = 0; j < i; ++j)
-                if (nodes_[j].nameSlot == nodes_[i].nameSlot)
+                if (fresh[j].nameSlot == fresh[i].nameSlot)
                 {
                     markDup(j, i);
                     break;
                 }
-
-        return;
     }
-
-    size_t size = 64;
-    unsigned bits = 6;
-
-    while (size < n * 2)
+    else
     {
-        size <<= 1;
-        ++bits;
-    }
+        size_t size = 64;
+        unsigned bits = 6;
 
-    if (!extra_)
-        extra_ = std::make_unique<Extra>();
-
-    std::vector<uint32_t>& t = extra_->table;
-    t.assign(size, 0);
-    extra_->shift = 32 - bits;
-    const size_t mask = size - 1;
-
-    for (size_t i = 0; i < n; ++i)
-    {
-        const uint32_t name = nodes_[i].nameSlot;
-
-        for (size_t k = IndexSlot(name, extra_->shift);; k = (k + 1) & mask)
+        while (size < n * 2)
         {
-            const uint32_t e = t[k];
+            size <<= 1;
+            ++bits;
+        }
 
-            if (e == 0)
-            {
-                t[k] = static_cast<uint32_t>(i + 1);
-                break;
-            }
+        if (!extra)
+            extra = std::make_unique<Extra>();
 
-            if (nodes_[e - 1].nameSlot == name)
+        std::vector<uint32_t>& t = extra->table;
+        t.assign(size, 0);
+        extra->shift = 32 - bits;
+        const size_t mask = size - 1;
+
+        for (size_t i = 0; i < n; ++i)
+        {
+            const uint32_t name = fresh[i].nameSlot;
+
+            for (size_t k = IndexSlot(name, extra->shift);; k = (k + 1) & mask)
             {
-                markDup(e - 1, i);
-                break;
+                const uint32_t e = t[k];
+
+                if (e == 0)
+                {
+                    t[k] = static_cast<uint32_t>(i + 1);
+                    break;
+                }
+
+                if (fresh[e - 1].nameSlot == name)
+                {
+                    markDup(e - 1, i);
+                    break;
+                }
             }
         }
     }
+
+    nodes_.swap(fresh);  // the old entries (there are none: the object is empty) go away with `fresh`
+    extra_ = std::move(extra);
+    anyHidden_ = anyHidden_ || hidden;
 }
 
 CKeyValue::Node& CKeyValue::PushNode(uint32_t nameSlot, int firstSame)
@@ -364,8 +381,7 @@ int CKeyValue::IntOf(const Node& n, int def)
 
     if (n.type == Float)
     {
-        // A float that is not a whole number truncates exactly. A whole one may stand for a longer
-        // decimal text that rounded up to it (2.99999999 -> 3.0f), so the text decides.
+        // A whole float may stand for text that rounded up to it (2.99999999 -> 3.0f): reparse it.
         const float f = n.floatValue;
 
         if (f > -8388608.f && f < 8388608.f)

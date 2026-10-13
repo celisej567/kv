@@ -37,37 +37,37 @@ The first load in a fresh process (median of 9 processes, ours only) is slower t
 
 | file | source-kv | ours | ours vs source-kv |
 |---|---|---|---|
-| wide | 6.9 ms (394 MB/s) | 10.2 ms (265 MB/s) | 0.7x |
-| nested | 38.0 ms (271 MB/s) | 26.6 ms (387 MB/s) | 1.4x |
-| unique | 11.8 ms (644 MB/s) | 19.8 ms (383 MB/s) | 0.6x |
-| nested_big | 331.6 ms (249 MB/s) | 240.6 ms (344 MB/s) | 1.4x |
+| wide | 7.7 ms (352 MB/s) | 10.9 ms (249 MB/s) | 0.7x |
+| nested | 39.0 ms (264 MB/s) | 29.9 ms (344 MB/s) | 1.3x |
+| unique | 12.0 ms (631 MB/s) | 20.8 ms (365 MB/s) | 0.6x |
+| nested_big | 348.2 ms (238 MB/s) | 253.2 ms (326 MB/s) | 1.4x |
 
 ## Parse only: source-kv `from_str::<IgnoredAny>` (the borrowed tape, no owned tree) vs our full load
 
 | file | source-kv parse only | ours (full tree) | ours vs source-kv |
 |---|---|---|---|
-| wide | 2.2 ms (1243 MB/s) | 10.0 ms (270 MB/s) | 0.2x |
-| nested | 10.5 ms (977 MB/s) | 26.2 ms (393 MB/s) | 0.4x |
-| unique | 5.4 ms (1397 MB/s) | 19.4 ms (391 MB/s) | 0.3x |
-| nested_big | 116.8 ms (708 MB/s) | 241.2 ms (343 MB/s) | 0.5x |
+| wide | 2.0 ms (1335 MB/s) | 10.6 ms (255 MB/s) | 0.2x |
+| nested | 11.0 ms (936 MB/s) | 27.4 ms (375 MB/s) | 0.4x |
+| unique | 5.7 ms (1324 MB/s) | 21.5 ms (352 MB/s) | 0.3x |
+| nested_big | 122.1 ms (677 MB/s) | 259.6 ms (318 MB/s) | 0.5x |
 
 ## Destroy tree
 
 | file | source-kv | ours | ours vs source-kv |
 |---|---|---|---|
-| wide | 1.5 ms | 0.1 ms | 21.9x |
-| nested | 9.7 ms | 1.9 ms | 5.1x |
-| unique | 3.3 ms | 1.7 ms | 1.9x |
-| nested_big | 80.7 ms | 15.3 ms | 5.3x |
+| wide | 1.6 ms | 0.1 ms | 23.3x |
+| nested | 10.3 ms | 2.1 ms | 4.8x |
+| unique | 3.3 ms | 1.7 ms | 2.0x |
+| nested_big | 86.5 ms | 16.1 ms | 5.4x |
 
 ## Save tree -> file (source-kv: `to_string`, then write)
 
 | file | source-kv | ours | ours vs source-kv | output size source-kv / ours |
 |---|---|---|---|---|
-| wide | 1.8 ms (1432 MB/s) | 1.6 ms (1525 MB/s) | 1.1x | 2.7 / 2.5 MB |
-| nested | 8.4 ms (860 MB/s) | 7.6 ms (894 MB/s) | 1.1x | 7.5 / 7.1 MB |
-| unique | 4.4 ms (1388 MB/s) | 3.7 ms (1681 MB/s) | 1.2x | 6.4 / 6.4 MB |
-| nested_big | 76.5 ms (757 MB/s) | 63.7 ms (861 MB/s) | 1.2x | 60.7 / 57.5 MB |
+| wide | 1.9 ms (1337 MB/s) | 1.7 ms (1438 MB/s) | 1.1x | 2.7 / 2.5 MB |
+| nested | 8.7 ms (823 MB/s) | 8.0 ms (849 MB/s) | 1.1x | 7.5 / 7.1 MB |
+| unique | 4.5 ms (1359 MB/s) | 3.7 ms (1645 MB/s) | 1.2x | 6.4 / 6.4 MB |
+| nested_big | 81.2 ms (713 MB/s) | 68.4 ms (802 MB/s) | 1.2x | 60.7 / 57.5 MB |
 
 ## Memory of one loaded tree (fresh process; heap = bytes the allocator holds live, RSS = resident growth)
 
@@ -75,25 +75,25 @@ The first load in a fresh process (median of 9 processes, ours only) is slower t
 |---|---|---|---|---|---|
 | wide | 2.8 MB | 7.6 MB (2.67x) | 8.9 MB (3.13x) | 12.1 MB | 8.1 MB |
 | nested | 10.8 MB | 28.7 MB (2.66x) | 16.4 MB (1.52x) | 52.5 MB | 16.3 MB |
-| unique | 7.9 MB | 15.8 MB (1.99x) | 27.4 MB (3.45x) | 21.6 MB | 21.7 MB |
-| nested_big | 86.7 MB | 229.9 MB (2.65x) | 131.8 MB (1.52x) | 419.3 MB | 127.8 MB |
+| unique | 7.9 MB | 15.8 MB (1.99x) | 27.4 MB (3.45x) | 21.7 MB | 21.8 MB |
+| nested_big | 86.7 MB | 229.9 MB (2.65x) | 131.8 MB (1.52x) | 419.3 MB | 129.9 MB |
 
 ## Lookups (source-kv has no typed values: its GetInt is `get_string` + `parse::<i64>`)
 
 | file | keys in the top object | top-level by name: source-kv | ours | 6-key object GetInt / GetString: source-kv | ours | values read |
 |---|---|---|---|---|---|---|
-| nested | 50000 | 131282 ns | 39 ns | 12 / 5 ns | 12 / 19 ns | same |
-| wide | 100000 | 177335 ns | 109 ns | - | - | - |
+| nested | 50000 | 147860 ns | 43 ns | 13 / 5 ns | 12 / 19 ns | same |
+| wide | 100000 | 181962 ns | 103 ns | - | - | - |
 
 ## Threads loading nested.kv at the same time (total MB/s; own tree per thread)
 
 | threads | source-kv | ours (thread-safe build) | ours vs source-kv |
 |---|---|---|---|
-| 1 | 251 MB/s | 323 MB/s | 1.3x |
-| 2 | 261 MB/s | 569 MB/s | 2.2x |
-| 4 | 293 MB/s | 790 MB/s | 2.7x |
-| 8 | 314 MB/s | 969 MB/s | 3.1x |
-| 16 | 402 MB/s | 816 MB/s | 2.0x |
+| 1 | 243 MB/s | 268 MB/s | 1.1x |
+| 2 | 252 MB/s | 568 MB/s | 2.3x |
+| 4 | 304 MB/s | 894 MB/s | 2.9x |
+| 8 | 312 MB/s | 879 MB/s | 2.8x |
+| 16 | 398 MB/s | 927 MB/s | 2.3x |
 
 ## Summary
 

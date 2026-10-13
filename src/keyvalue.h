@@ -38,6 +38,7 @@ public:
     // only checked for matching braces. No such root -> "root "name" not found". On failure prints
     // "file:line:col: message" to stderr, clears the contents (the name stays) and returns false.
     bool LoadFromFile(const char* path);
+    // false: the file could not be created or written; a half-written file is removed.
     bool WriteToFile(const char* path) const;
 
     // Conditions: `"key" "value" [$LINUX]`, `"key" [!$A && ($B || $C)] { ... }`. Unset names are

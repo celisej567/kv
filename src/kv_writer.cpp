@@ -8,8 +8,7 @@
 
 namespace
 {
-// Output buffer written in blocks. Appends are plain memcpy into a buffer that is grown when needed;
-// there is no per-character bookkeeping.
+// Block-written output buffer; appends are plain memcpy.
 class Out
 {
 public:
@@ -90,8 +89,7 @@ public:
         Put('"');
     }
 
-    // `indent "name" value`, value quoted or not, and the line end: one room check for the whole line.
-    // Only without escape sequences (then nothing has to be translated).
+    // A whole line with one room check; only without escape sequences.
     void Line(int level, std::string_view name, std::string_view value, bool quoteValue)
     {
         const size_t indent = static_cast<size_t>(level);
@@ -214,17 +212,34 @@ void WriteObject(Out& out, const CKeyValue& kv, int level)
 
 bool CKeyValue::WriteToFile(const char* path) const
 {
-    FILE* f = std::fopen(path, "wb");
+    // Closed on every exit, also when an allocation throws.
+    std::unique_ptr<FILE, int (*)(FILE*)> file(std::fopen(path, "wb"), &std::fclose);
 
-    if (!f)
+    if (!file)
         return false;
 
-    Out out(f, UsesEscapeSequences());
-    out.Quoted(KVStringPool::Instance().View(nameSlot_));
-    out.EndLine();
-    WriteObject(out, *this, 0);
-    out.Flush();
-    const bool ok = out.ok();
+    bool ok = false;
 
-    return (std::fclose(f) == 0) && ok;
+    try
+    {
+        Out out(file.get(), UsesEscapeSequences());
+        out.Quoted(KVStringPool::Instance().View(nameSlot_));
+        out.EndLine();
+        WriteObject(out, *this, 0);
+        out.Flush();
+        ok = out.ok();
+    }
+    catch (...)
+    {
+        file.reset();
+        std::remove(path);  // not a half-written file
+        throw;
+    }
+
+    ok = (std::fclose(file.release()) == 0) && ok;
+
+    if (!ok)
+        std::remove(path);  // a failed write leaves no file, not a truncated one
+
+    return ok;
 }

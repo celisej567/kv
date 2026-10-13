@@ -71,7 +71,7 @@ inline size_t IntToChars(char* buf, size_t cap, int v)
     return static_cast<size_t>(std::to_chars(buf, buf + cap, v).ptr - buf);
 }
 
-// The text always has a '.' or an exponent, so that it reads back as a Float and not as an Int (2.0f -> "2.0").
+// Always has a '.' or an exponent so it reads back as Float (2.0f -> "2.0").
 // NaN and infinity have no number text and are written as "nan" / "inf".
 inline size_t FormatFloatTo(char* buf, size_t cap, float v)
 {
@@ -95,10 +95,8 @@ inline size_t FormatFloatTo(char* buf, size_t cap, float v)
     return n;
 }
 
-// The type a value text has, as decided when a file is read (and by SetString/AddString): Int if the
-// whole text is an integer, Float if it is a decimal number, else String. `iv` / `fv` get the number.
-// `canonical` is set for a number whose text is exactly what FormatInt / FormatFloat would write for
-// it: such a node does not need its text in the pool, the text is made from the number when asked.
+// Type of a value text (as decided at load and by SetString/AddString); `iv`/`fv` get the number.
+// `canonical`: the text equals what FormatInt/FormatFloat would write, so it is not pooled.
 inline CKeyValue::Type Classify(std::string_view text, int& iv, float& fv, bool& canonical)
 {
     iv = 0;
@@ -210,8 +208,7 @@ struct KVInternal
 
     static constexpr size_t kNumberText = 64;
 
-    // The text of a String / Int / Float node. A number whose text is the canonical one has no text in
-    // the pool (valueSlot == kInvalidSlot): it is made from the number, into `buf`.
+    // Text of a String/Int/Float node; a canonical number (valueSlot == kInvalidSlot) is made into `buf`.
     static std::string_view Text(const Node& n, char (&buf)[kNumberText])
     {
         if (n.valueSlot != kInvalidSlot)

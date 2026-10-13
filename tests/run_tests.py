@@ -237,6 +237,17 @@ def dups_blocks(cli, tmp):
     return "4 blocks with one name"
 
 
+def fail_cleanup(cli, tmp):
+    """Every allocation of a load / write / copy fails in turn (kv_stress allocfail): after each failure the heap,
+    the open files and the output file are as before, a failed load leaves an empty object, the pool is intact."""
+    cases = sorted(CASES.glob("*.kv"))
+    for kv in cases:
+        for tag, tool in TOOLS.items():
+            rc, _, se = run(tool, "allocfail", kv, timeout=300)
+            check(f"{kv.stem} [{tag}]", rc == 0, f"exit {rc}: {se.strip()[-300:]}")
+    return f"{len(cases)} files, both library builds"
+
+
 def misc_write_unwritable(cli, tmp):
     rc, _, _ = run(cli, "write", CASES / "good.kv", Path(tmp) / "no_such_dir" / "x.kv")
     check("write-unwritable", rc == 1, f"exit {rc}, expected 1")
@@ -726,7 +737,7 @@ def main():
 
     tests = [(kv.stem, lambda c, t, kv=kv: test_case(c, kv, t))
              for kv in sorted(CASES.glob("*.kv"))]
-    tests += [(f.__name__, f) for f in (misc_missing_file, misc_no_args, misc_bad_command, misc_write_unwritable, write_large_values, misc_kvdef, misc_api, dups_gameinfo, dups_blocks,
+    tests += [(f.__name__, f) for f in (misc_missing_file, misc_no_args, misc_bad_command, misc_write_unwritable, fail_cleanup, write_large_values, misc_kvdef, misc_api, dups_gameinfo, dups_blocks,
                                          stream_boundaries, stream_long_tokens, stream_error_position,
                                          deep_branching, depth_limit)]
     tests += [("perf_wide", perf_dataset("wide", 100000)),

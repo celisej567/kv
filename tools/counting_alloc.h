@@ -1,15 +1,12 @@
 #pragma once
-// Replaces the global operator new/delete with a version that counts live and peak heap bytes.
-// This is the ground truth the tools compare the pool's own accounting against.
+// Replaces global operator new/delete to count live and peak heap bytes.
 // Include in exactly ONE translation unit of an executable (it defines the global operators).
 #include <atomic>
 #include <cstddef>
 #include <cstdlib>
 #include <new>
 
-// Not inlined: once GCC inlines these into new/delete of a known-size object, it "sees" the header
-// arithmetic as out of bounds and the malloc/free pair as mismatched (false -Warray-bounds and
-// -Wmismatched-new-delete warnings).
+// Not inlined: GCC otherwise emits false -Warray-bounds / -Wmismatched-new-delete warnings.
 #if defined(__GNUC__) || defined(__clang__)
 #define COUNTING_ALLOC_NOINLINE __attribute__((noinline))
 #elif defined(_MSC_VER)
@@ -22,9 +19,12 @@ namespace counting_alloc {
 
 inline std::atomic<size_t> g_live{0};
 inline std::atomic<size_t> g_peak{0};
+// Fault injection: k >= 0 makes the (k+1)-th allocation throw bad_alloc, then resets to -1 (off).
+inline std::atomic<long> g_failIn{-1};
 constexpr size_t kHeader = 16;  // keeps the 16-byte alignment malloc gives
 
 COUNTING_ALLOC_NOINLINE inline void* Alloc(size_t n) {
+    if (g_failIn.load(std::memory_order_relaxed) >= 0 && g_failIn.fetch_sub(1, std::memory_order_relaxed) == 0) return nullptr;
     void* p = std::malloc(n + kHeader);
     if (!p) return nullptr;
     *static_cast<size_t*>(p) = n;

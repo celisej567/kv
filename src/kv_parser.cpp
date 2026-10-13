@@ -27,9 +27,8 @@ struct CharTable
 };
 constexpr CharTable kChars;
 
-// Conditions: a token "[...]" after a key, a value or the root name decides whether the entry
-// exists. The text is an expression ($NAME, !, &&, ||, parentheses) over a table of names that the
-// application can extend with SetCondition.
+// Conditions: a "[...]" token after a key, value or root name decides whether the entry exists
+// ($NAME, !, &&, ||, parentheses; names extensible with SetCondition).
 using CondTable = std::vector<std::pair<std::string, bool>>;
 
 std::mutex g_condMutex;
@@ -190,7 +189,7 @@ private:
     bool bad_ = false;
 };
 
-// Number of '\n' in [p, p+n), eight bytes at a time. `last` gets the index of the final one (n if none).
+// Count of '\n' in [p, p+n); `last` gets the index of the final one (n if none).
 size_t CountNewlines(const char* p, size_t n, size_t& last)
 {
     constexpr uint64_t kLow = 0x0101010101010101ull, kHigh = 0x8080808080808080ull;
@@ -221,8 +220,8 @@ size_t CountNewlines(const char* p, size_t n, size_t& last)
     return count;
 }
 
-// A small direct-mapped cache in front of the pool for short strings. The pool only grows and a slot
-// never changes its text, so an entry stays right forever; a hit costs one cache line and no lock.
+// Direct-mapped cache of short strings in front of the pool (slots never change text, so no
+// invalidation; a hit takes no lock).
 class InternCache
 {
 public:
@@ -261,15 +260,14 @@ private:
     Entry e_[kEntries];
 };
 
-// Streaming parser: the file is read through a sliding window, so peak memory is the tree plus
-// the window, not tree plus file. A token cut by the end of the window is rescanned after a refill.
+// Streaming parser over a sliding window; a token cut by the window end is rescanned after Refill.
 class Parser
 {
 public:
     Parser(FILE* f, bool useCond, bool useEsc)
         : f_(f), buf_(kInitialWindow), conds_(SnapshotConditions()), useCond_(useCond), useEsc_(useEsc) {}
 
-    // after an exception from the pool, children that were staged are still owned here
+    // children still staged after an exception are owned here
     ~Parser()
     {
         for (const KVInternal::Node& n : stage_)
@@ -287,7 +285,7 @@ public:
             lastNewlineAbs_ = 2;
         }
 
-        // A named root looks for a root of that name; an unnamed one takes the first root and its name.
+        // Named: find the root of that name; unnamed: take the first root and its name.
         const bool wanted = *root.GetName() != '\0';
         const uint32_t wantedSlot = KVInternal::NameSlot(root);
         bool found = false;
@@ -466,8 +464,7 @@ private:
         }
     }
 
-    // Scans one token in the window. Returns false if the window ended before the token was complete
-    // (keepFrom_ tells Refill what to retain).
+    // Scans one token; false if the window ended first (keepFrom_ tells Refill what to retain).
     bool TryNext(Tok& out)
     {
         const char* s = buf_.data();
@@ -777,8 +774,7 @@ private:
         return true;
     }
 
-    // The entries of an object are staged on `stage_` while it is parsed and handed over in one go
-    // when its closing brace is read, so every object allocates its array once, with the exact size.
+    // An object's entries are staged on `stage_` and adopted in one go at its closing brace.
     bool ParseBody(CKeyValue& obj, int depth)
     {
         const size_t base = stage_.size();

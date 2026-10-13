@@ -395,6 +395,10 @@ Example (file: `a 1 [$X360]`, `a 2 [$LINUX]`, `b 5 [$X360]`, `c [$X360] { d 1 }`
 4. On a syntax error: prints `path:line:column: message` to `stderr`, returns `false`, leaves the object empty.
    No exceptions for malformed input. (Exceptions can still come from the pool limits, section 2, or
    `std::bad_alloc`.)
+5. **Nothing is left behind on any exit** (`false` or an exception): the file is closed, the read window and the
+   half-built tree are freed, and the object is empty. `tests/run_tests.py` checks this by making every allocation of a
+   load, a write and a copy fail in turn (`kv_stress allocfail`): afterwards the heap, the open files and the output
+   file are exactly as before. Strings the failed load had already added to the pool stay there, as always.
 
 ### Which root is loaded (several roots in one file)
 
@@ -450,7 +454,8 @@ The error line/column point at the offending token (for end-of-file errors, at t
 
 `bool WriteToFile(const char* path) const`
 
-* Returns `false` if the file cannot be created or a write fails.
+* Returns `false` if the file cannot be created or a write fails. A write that fails after the file was created
+  (disk full, ...) **removes the half-written file**; the file handle is always closed, also when an allocation throws.
 * Format: the object's name in quotes on a line, then the block. Everything is indented with **one tab per level** and a key is separated from its value by **one tab**,
   braces on their own lines:
 

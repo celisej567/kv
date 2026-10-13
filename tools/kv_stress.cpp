@@ -5,10 +5,8 @@
 // kv_cli: kv_cli must keep the normal allocator so its timings and RSS numbers are not skewed.
 //
 //   kv_stress mtload <file> <threads>
-//       <threads> threads load <file> at the same moment into their own trees while one more thread
-//       keeps adding unrelated strings (forcing the pool to grow during the loads). On success
-//       stdout is the dump (same format as `kv_cli dump`), exit 0. If every thread failed: exit 1
-//       and stderr has the parser messages, like kv_cli. If threads disagree: exit 3.
+//       <threads> threads load <file> at once while another adds strings (pool grows meanwhile).
+//       Success: dump on stdout, exit 0. All failed: exit 1 with parser messages. Disagree: exit 3.
 //   kv_stress mt <file> <threads> <unique> <shared>
 //       Threads load <file> into their own trees, read a shared tree loaded beforehand, and intern
 //       overlapping ("shared") and private ("unique", >= 1) strings into the global pool.
@@ -18,20 +16,147 @@
 //       next to the real heap usage measured by the counting operator new.
 //   kv_stress poolperf <strings> <threads>
 //       Speed of a private pool: single-thread ns/op and multi-thread throughput (pool_perf.h).
+//   kv_stress allocfail <file>
+//       Fails the n-th allocation (n = 0, 1, ...) in load, write and copy; nothing may be left
+//       behind (heap, open files, partial output, non-empty object, broken pool). Exit 0 if clean.
 // Except for mtload every command prints "name value" lines.
 #include <atomic>
 #include <cstdio>
+#include <filesystem>
+#include <new>
 #include <cstdlib>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <vector>
 
+#if defined(_WIN32)
+#include <io.h>
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
+
 #include "counting_alloc.h"
 #include "keyvalue.h"
 #include "keyvalue_internal.h"
 #include "kv_dump.h"
 #include "pool_perf.h"
+
+// --- allocfail -----------------------------------------------------------------------------------
+// The number a file gets when it is opened: the same number again and again means nothing is leaked.
+static int ProbeFd(const std::string& path) {
+    FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return -1;
+#if defined(_WIN32)
+    const int fd = _fileno(f);
+#else
+    const int fd = fileno(f);
+#endif
+    std::fclose(f);
+    return fd;
+}
+
+static bool FileExists(const std::string& path) {
+    FILE* f = std::fopen(path.c_str(), "rb");
+    if (f) std::fclose(f);
+    return f != nullptr;
+}
+
+static int AllocFail(const char* file) {
+    namespace ca = counting_alloc;
+    constexpr long kMaxSteps = 100000;
+    auto bad = [](const char* what, long k) {
+        std::fprintf(stderr, "allocfail: %s (allocation #%ld failed)\n", what, k);
+        return 1;
+    };
+    // Runs `op` with the k-th allocation failing. Returns true if it failed (threw), false if it ran through.
+    auto attempt = [&](long k, auto&& op) {
+        bool threw = false;
+        ca::g_failIn = k;
+        try { op(); } catch (const std::bad_alloc&) { threw = true; }
+        ca::g_failIn = -1;
+        return threw;
+    };
+    const std::string tmp = (std::filesystem::temp_directory_path() / ("kv_stress_" +
+#if defined(_WIN32)
+        std::to_string(_getpid())
+#else
+        std::to_string(getpid())
+#endif
+        + "_allocfail.kv")).string();
+
+    // 1) A cold pool: failures in the middle of interning. The pool must stay consistent.
+    long cold = 0;
+    for (long k = 0; k < kMaxSteps; ++k) {
+        CKeyValue kv;
+        if (!attempt(k, [&] { kv.LoadFromFile(file); })) break;
+        ++cold;
+        if (kv.Count() != 0) return bad("a failed load left entries in the object", k);
+    }
+    KVStringPool& pool = KVStringPool::Instance();
+    for (uint32_t i = 0; i < pool.Count(); ++i)
+        if (pool.Find(pool.View(i)) != i) return bad("the pool does not find a string at its own slot", i);
+
+    // 2) A warm pool (nothing new to intern): the heap and the files must be exactly as before.
+    CKeyValue warm;
+    const bool loads = warm.LoadFromFile(file);
+    CKeyValue("Named");  // its name is interned now, so the checks below find the pool unchanged
+    const std::string missing = (std::filesystem::path(tmp).parent_path() / "kv_no_such_file.kv").string();
+    const std::string missingDir = (std::filesystem::path(tmp).parent_path() / "kv_no_such_dir" / "x.kv").string();
+    const std::string tempDir = std::filesystem::path(tmp).parent_path().string();
+    const int fd0 = ProbeFd(file);
+    const size_t base = ca::Live();
+    auto clean = [&](const char* what, long k) {
+        if (ca::Live() != base) return bad(what, k);
+        if (ProbeFd(file) != fd0) return bad("a file handle was left open", k);
+        return 0;
+    };
+    long load = 0, write = 0, copy = 0;
+    for (long k = 0; k < kMaxSteps; ++k) {
+        {
+            CKeyValue kv;
+            if (!attempt(k, [&] { kv.LoadFromFile(file); })) break;
+            ++load;
+            if (kv.Count() != 0) return bad("a failed load left entries in the object", k);
+        }
+        if (clean("memory left after a failed load", k)) return 1;
+    }
+    if (loads) {
+        for (long k = 0; k < kMaxSteps; ++k) {
+            if (!attempt(k, [&] { warm.WriteToFile(tmp.c_str()); })) break;
+            ++write;
+            if (FileExists(tmp)) return bad("a half-written file was left behind", k);
+            if (clean("memory left after a failed write", k)) return 1;
+        }
+        std::remove(tmp.c_str());
+        for (long k = 0; k < kMaxSteps; ++k) {
+            {
+                if (!attempt(k, [&] { CKeyValue c(warm); })) break;
+                ++copy;
+            }
+            if (clean("memory left after a failed copy", k)) return 1;
+        }
+        for (long k = 0; k < kMaxSteps; ++k) {
+            CKeyValue c;
+            if (!attempt(k, [&] { c = warm; })) break;
+            if (clean("memory left after a failed assignment", k)) return 1;
+        }
+    }
+    // a write that fails without throwing (no such directory): no handle, no file
+    if (warm.WriteToFile(missingDir.c_str()))
+        return bad("writing into a missing directory did not fail", 0);
+    if (clean("memory left after a failed open", 0)) return 1;
+    // loads that fail without an exception: a missing file, a directory (opens on Linux, then the read fails)
+    for (const std::string* bad_path : {&missing, &tempDir}) {
+        CKeyValue kv("Named");
+        if (kv.LoadFromFile(bad_path->c_str())) return bad("a load of a missing file or a directory succeeded", 0);
+        if (kv.Count() != 0 || std::string(kv.GetName()) != "named") return bad("a failed load did not leave an empty, still named object", 0);
+        if (clean("memory or handle left after a failed open or read", 0)) return 1;
+    }
+    std::printf("cold_load_failures %ld\nload_failures %ld\nwrite_failures %ld\ncopy_failures %ld\npool_strings %zu\n", cold, load, write, copy, pool.Count());
+    return 0;
+}
 
 // --- poolmem -------------------------------------------------------------------------------------
 static std::string MakeString(size_t i, size_t len) {
@@ -251,6 +376,7 @@ int main(int argc, char** argv) {
     if (cmd == "mtload" && argc == 4) return MtLoad(argv[2], std::atoi(argv[3]));
     if (cmd == "mt" && argc == 6) return MultiThread(argv[2], std::atoi(argv[3]), std::atoi(argv[4]), std::atoi(argv[5]));
 #endif
+    if (cmd == "allocfail" && argc == 3) return AllocFail(argv[2]);
     if (cmd == "poolmem" && argc == 5)
         return PoolMem(std::strtoul(argv[2], nullptr, 10), std::strtoul(argv[3], nullptr, 10), std::strtoul(argv[4], nullptr, 10));
     if (cmd == "poolperf" && argc == 4) {

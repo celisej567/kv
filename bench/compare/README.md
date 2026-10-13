@@ -90,44 +90,44 @@ percent, for example `nested` load 153.4 vs 153.2 ms; lookups in big objects by 
 
 | file | Source | P2CE | ours | ours -O3 native | ours vs Source | ours vs P2CE |
 |---|---|---|---|---|---|---|
-| wide | 133.2 ms (20 MB/s) | 117.0 ms (23 MB/s) | 10.7 ms (254 MB/s) | 10.6 ms (257 MB/s) | 12.5x | 11.0x |
-| nested | 149.3 ms (69 MB/s) | 109.2 ms (94 MB/s) | 28.3 ms (364 MB/s) | 28.9 ms (356 MB/s) | 5.3x | 3.9x |
-| unique | 264.6 ms (29 MB/s) | 262.3 ms (29 MB/s) | 20.4 ms (372 MB/s) | 19.9 ms (381 MB/s) | 13.0x | 12.9x |
-| nested_big | 1367.7 ms (60 MB/s) | 1999.6 ms (41 MB/s) | 254.6 ms (325 MB/s) | 239.5 ms (345 MB/s) | 5.4x | 7.9x |
+| wide | 133.2 ms (20 MB/s) | 117.0 ms (23 MB/s) | 10.6 ms (255 MB/s) | 10.9 ms (248 MB/s) | 12.5x | 11.0x |
+| nested | 148.2 ms (69 MB/s) | 108.9 ms (94 MB/s) | 27.7 ms (371 MB/s) | 26.7 ms (386 MB/s) | 5.3x | 3.9x |
+| unique | 259.2 ms (29 MB/s) | 261.4 ms (29 MB/s) | 20.2 ms (376 MB/s) | 20.8 ms (365 MB/s) | 12.8x | 13.0x |
+| nested_big | 1362.1 ms (61 MB/s) | 2019.1 ms (41 MB/s) | 258.5 ms (320 MB/s) | 260.7 ms (317 MB/s) | 5.3x | 7.8x |
 
 #### Destroy tree
 
 | file | Source | P2CE | ours | ours -O3 native |
 |---|---|---|---|---|
 | wide | 1.5 ms | 0.7 ms | 0.1 ms | 0.1 ms |
-| nested | 6.8 ms | 3.4 ms | 1.9 ms | 1.9 ms |
+| nested | 7.0 ms | 3.5 ms | 1.9 ms | 1.9 ms |
 | unique | 3.2 ms | 1.6 ms | 1.7 ms | 1.7 ms |
-| nested_big | 56.6 ms | 31.0 ms | 16.0 ms | 15.8 ms |
+| nested_big | 56.6 ms | 29.5 ms | 15.7 ms | 16.6 ms |
 
 #### Save tree -> file (Source writes to a buffer, then fwrite)
 
 | file | Source | P2CE | ours | ours -O3 native | ours vs Source | ours vs P2CE | output size Source / P2CE / ours |
 |---|---|---|---|---|---|---|---|
-| wide | 15.5 ms (175 MB/s) | 13.2 ms (205 MB/s) | 2.0 ms (1197 MB/s) | 1.6 ms (1522 MB/s) | 7.6x | 6.5x | 2.8 / 2.8 / 2.5 MB |
-| nested | 55.5 ms (139 MB/s) | 41.4 ms (186 MB/s) | 10.0 ms (678 MB/s) | 7.8 ms (867 MB/s) | 5.5x | 4.1x | 8.1 / 8.1 / 7.1 MB |
-| unique | 20.8 ms (300 MB/s) | 14.7 ms (425 MB/s) | 4.9 ms (1256 MB/s) | 3.8 ms (1639 MB/s) | 4.2x | 3.0x | 6.5 / 6.5 / 6.4 MB |
-| nested_big | 431.2 ms (144 MB/s) | 338.5 ms (183 MB/s) | 83.4 ms (657 MB/s) | 65.4 ms (838 MB/s) | 5.2x | 4.1x | 65.1 / 65.1 / 57.5 MB |
+| wide | 15.1 ms (180 MB/s) | 13.2 ms (205 MB/s) | 2.1 ms (1170 MB/s) | 1.7 ms (1452 MB/s) | 7.3x | 6.4x | 2.8 / 2.8 / 2.5 MB |
+| nested | 53.4 ms (144 MB/s) | 40.9 ms (189 MB/s) | 9.7 ms (706 MB/s) | 8.0 ms (855 MB/s) | 5.5x | 4.2x | 8.1 / 8.1 / 7.1 MB |
+| unique | 20.6 ms (304 MB/s) | 14.2 ms (441 MB/s) | 4.6 ms (1334 MB/s) | 3.7 ms (1650 MB/s) | 4.5x | 3.1x | 6.5 / 6.5 / 6.4 MB |
+| nested_big | 430.4 ms (144 MB/s) | 332.4 ms (187 MB/s) | 82.8 ms (662 MB/s) | 67.7 ms (810 MB/s) | 5.2x | 4.0x | 65.1 / 65.1 / 57.5 MB |
 
 #### Memory of one loaded tree (fresh process; heap = malloc in use, RSS = resident growth)
 
 | file | file size | heap Source | heap P2CE | heap ours | RSS Source | RSS P2CE | RSS ours | peak RSS Source | peak RSS P2CE | peak RSS ours |
 |---|---|---|---|---|---|---|---|---|---|---|
-| wide | 2.8 MB | 10.7 MB (3.77x) | 10.9 MB (3.83x) | 8.9 MB (3.13x) | 12.9 MB | 16.9 MB | 8.0 MB | 15.5 MB | 16.9 MB | 9.7 MB |
-| nested | 10.8 MB | 41.6 MB (3.86x) | 38.1 MB (3.53x) | 16.4 MB (1.52x) | 43.7 MB | 40.6 MB | 16.2 MB | 54.2 MB | 53.0 MB | 17.1 MB |
-| unique | 7.9 MB | 22.4 MB (2.82x) | 22.8 MB (2.87x) | 27.4 MB (3.45x) | 26.6 MB | 27.4 MB | 23.4 MB | 34.3 MB | 35.6 MB | 24.8 MB |
-| nested_big | 86.7 MB | 337.8 MB (3.90x) | 304.7 MB (3.51x) | 131.8 MB (1.52x) | 336.2 MB | 317.7 MB | 127.3 MB | 422.2 MB | 405.5 MB | 134.1 MB |
+| wide | 2.8 MB | 10.7 MB (3.77x) | 10.9 MB (3.83x) | 8.9 MB (3.13x) | 12.8 MB | 17.0 MB | 8.0 MB | 15.2 MB | 17.0 MB | 9.7 MB |
+| nested | 10.8 MB | 41.6 MB (3.86x) | 38.1 MB (3.53x) | 16.4 MB (1.52x) | 43.7 MB | 40.6 MB | 16.2 MB | 53.9 MB | 52.9 MB | 17.1 MB |
+| unique | 7.9 MB | 22.4 MB (2.82x) | 22.8 MB (2.87x) | 27.4 MB (3.45x) | 26.7 MB | 27.4 MB | 23.3 MB | 33.6 MB | 35.6 MB | 24.6 MB |
+| nested_big | 86.7 MB | 337.8 MB (3.90x) | 304.7 MB (3.51x) | 131.8 MB (1.52x) | 336.2 MB | 317.5 MB | 128.1 MB | 422.0 MB | 405.2 MB | 136.1 MB |
 
 #### Lookups
 
 | file | keys in the top object | top-level by name: Source | P2CE | ours | 6-key GetInt / GetString: Source | P2CE | ours | values read |
 |---|---|---|---|---|---|---|---|---|
-| nested | 50000 | 66064 ns | 77141 ns | 37 ns | 28 / 19 ns | 24 / 20 ns | 13 / 22 ns | same |
-| wide | 100000 | 116766 ns | 74961 ns | 103 ns | - | - | - | - |
+| nested | 50000 | 48649 ns | 67614 ns | 38 ns | 28 / 19 ns | 26 / 20 ns | 13 / 22 ns | same |
+| wide | 100000 | 125321 ns | 78018 ns | 127 ns | - | - | - | - |
 
 Source's default key-name table (4 MB) overflowed on: nested_big; its numbers for those files use KeyValues::SetUseGrowableStringTable(true).
 
@@ -135,11 +135,11 @@ Source's default key-name table (4 MB) overflowed on: nested_big; its numbers fo
 
 | threads | Source | ours (thread-safe build) | ours vs Source |
 |---|---|---|---|
-| 1 | 62 MB/s | 299 MB/s | 4.8x |
-| 2 | 65 MB/s | 553 MB/s | 8.5x |
-| 4 | 65 MB/s | 800 MB/s | 12.3x |
-| 8 | 66 MB/s | 1011 MB/s | 15.4x |
-| 16 | 64 MB/s | 829 MB/s | 13.0x |
+| 1 | 58 MB/s | 269 MB/s | 4.7x |
+| 2 | 62 MB/s | 542 MB/s | 8.7x |
+| 4 | 65 MB/s | 918 MB/s | 14.1x |
+| 8 | 66 MB/s | 858 MB/s | 13.1x |
+| 16 | 66 MB/s | 945 MB/s | 14.4x |
 
 ### Noise in the `wide` lookup
 
