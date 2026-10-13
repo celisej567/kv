@@ -1,0 +1,16 @@
+[package]
+name = "kv_compare_rs"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+serde = "1"
+source-kv = { path = "../crate" }  # run_sourcers.py points this at a patched copy
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+[workspace]
