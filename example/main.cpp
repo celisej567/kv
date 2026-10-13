@@ -55,12 +55,12 @@ int main()
     std::ofstream(input) << kSample;
 
     // Reading. Failures are printed to stderr as "file:line:col: message".
-    CKeyValue kv("Unnamed");
+    CKeyValue kv;
 
     if (!kv.LoadFromFile(input.c_str()))
         return 1;
 
-    // The root takes its name from the file; names are always lower case.
+    // An unnamed object takes the name of the first root in the file; names are always lower case.
     std::printf("root: %s\n", kv.GetName());
 
     // Typed getters with defaults. Names are case-insensitive.

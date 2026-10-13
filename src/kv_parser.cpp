@@ -1,6 +1,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -206,55 +207,77 @@ public:
             lastNewlineAbs_ = 2;
         }
 
-        Tok t = Next();
+        // A named root looks for a root of that name; an unnamed one takes the first root and its name.
+        const bool wanted = *root.GetName() != '\0';
+        const uint32_t wantedSlot = KVInternal::NameSlot(root);
+        bool found = false;
+        bool first = true;
 
-        if (t == Tok::Error)
-            return false;
-
-        if (t == Tok::End)
-            return Fail(tokPos_, "empty file");
-
-        if (t != Tok::Str && t != Tok::Bare)
-            return Fail(tokPos_, "expected root name");
-
-        KVInternal::SetNameSlot(root, kvname::Intern(text_));
-
-        const uint32_t rootName = KVInternal::NameSlot(root);
-        t = Next();
-        bool accepted = true;
-
-        if (t == Tok::Cond)
+        for (;;)
         {
-            accepted = Eval();
+            Tok t = Next();
+
+            if (t == Tok::Error)
+                return false;
+
+            if (t == Tok::End)
+            {
+                if (first)
+                    return Fail(tokPos_, "empty file");
+
+                if (!found)
+                    return Fail(tokPos_, (std::string("root \"") + root.GetName() + "\" not found").c_str());
+
+                return true;
+            }
+
+            first = false;
+
+            if (t != Tok::Str && t != Tok::Bare)
+                return Fail(tokPos_, "expected root name");
+
+            const bool take = !found && (!wanted || kvname::Find(text_) == wantedSlot);
+
+            if (take)
+                KVInternal::SetNameSlot(root, kvname::Intern(text_));
+
+            const uint32_t rootName = KVInternal::NameSlot(root);
             t = Next();
+            bool accepted = true;
+
+            if (t == Tok::Cond)
+            {
+                accepted = Eval();
+                t = Next();
+            }
+
+            if (t == Tok::Error)
+                return false;
+
+            if (t != Tok::LBrace)
+                return Fail(tokPos_, "expected '{' after root name");
+
+            if (!take)
+            {
+                if (!SkipBody())
+                    return false;
+
+                continue;
+            }
+
+            if (!ParseBody(root, 0))
+                return false;
+
+            // the root is switched off: empty object that keeps its name
+            if (!accepted && useCond_)
+            {
+                CKeyValue empty;
+                KVInternal::SetNameSlot(empty, rootName);
+                root = std::move(empty);
+            }
+
+            found = true;
         }
-
-        if (t == Tok::Error)
-            return false;
-
-        if (t != Tok::LBrace)
-            return Fail(tokPos_, "expected '{' after root name");
-
-        if (!ParseBody(root, 0))
-            return false;
-
-        // the root is switched off: empty object that keeps its name
-        if (!accepted && useCond_)
-        {
-            CKeyValue empty;
-            KVInternal::SetNameSlot(empty, rootName);
-            root = std::move(empty);
-        }
-
-        t = Next();
-
-        if (t == Tok::Error)
-            return false;
-
-        if (t != Tok::End)
-            return Fail(tokPos_, "unexpected content after root object");
-
-        return true;
     }
 
     void Report(const char* path) const
@@ -649,6 +672,28 @@ private:
 
     bool Eval() const { return CondEval(text_, conds_).Run(); }
 
+    // After the '{' of a root that is not wanted: only the braces are matched, nothing is stored.
+    bool SkipBody()
+    {
+        for (size_t depth = 1; depth > 0;)
+        {
+            const Tok t = Next();
+
+            if (t == Tok::Error)
+                return false;
+
+            if (t == Tok::End)
+                return Fail(tokPos_, "unexpected end of file, missing '}'");
+
+            if (t == Tok::LBrace)
+                ++depth;
+            else if (t == Tok::RBrace)
+                --depth;
+        }
+
+        return true;
+    }
+
     bool ParseBody(CKeyValue& obj, int depth)
     {
         if (depth > kMaxDepth)
@@ -662,12 +707,14 @@ private:
         {
             bool has = false, accepted = true;
             uint32_t key = 0, value = 0;
+            int iv = 0;
+            float fv = 0.f;
             CKeyValue::Type type = CKeyValue::String;
         } p;
         auto commit = [&]
         {
             if (p.has)
-                KVInternal::AddValue(obj, p.key, p.type, p.value, !p.accepted);
+                KVInternal::AddValue(obj, p.key, p.type, p.value, !p.accepted, p.iv, p.fv);
 
             p.has = false;
         };
@@ -740,8 +787,8 @@ private:
                 // the type comes from the text, quotes don't matter
                 case Tok::Bare:
                 {
-                    int iv;
-                    float fv;
+                    int iv = 0;
+                    float fv = 0.f;
                     CKeyValue::Type type = CKeyValue::String;
                     const char c0 = text_.empty() ? 0 : text_[0];
 
@@ -757,6 +804,8 @@ private:
                     p.accepted = accepted;
                     p.key = key;
                     p.type = type;
+                    p.iv = iv;
+                    p.fv = fv;
                     p.value = pool.Intern(text_);
                     break;
                 }
@@ -814,7 +863,9 @@ void CKeyValue::SetCondition(const char* name, bool value)
 bool CKeyValue::LoadFromFile(const char* path)
 {
     Clear();
-    FILE* f = std::fopen(path, "rb");
+    // closed on every exit, also when the pool throws
+    std::unique_ptr<FILE, int (*)(FILE*)> file(std::fopen(path, "rb"), &std::fclose);
+    FILE* f = file.get();
 
     if (!f)
     {
@@ -827,7 +878,7 @@ bool CKeyValue::LoadFromFile(const char* path)
     KVInternal::SetUseEsc(tmp, UsesEscapeSequences());
     Parser parser(f, UsesConditionals(), UsesEscapeSequences());
     const bool ok = parser.Parse(tmp);
-    std::fclose(f);
+    file.reset();
 
     if (!ok)
     {

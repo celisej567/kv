@@ -95,7 +95,7 @@ static int MtLoad(const char* file, int threads) {
     std::vector<std::thread> ts;
     for (int t = 0; t < threads; ++t)
         ts.emplace_back([&, t] {
-            CKeyValue kv("Unnamed");
+            CKeyValue kv;
             ready.fetch_add(1);
             while (!go.load()) {}
             ok[static_cast<size_t>(t)] = KvLoad(kv, file) ? 1 : 0;
@@ -154,7 +154,7 @@ struct Worker {
 static int MultiThread(const char* file, int threads, int unique, int shared) {
     if (threads < 1 || unique < 1 || shared < 0) return 2;
     KVStringPool& pool = KVStringPool::Instance();
-    CKeyValue ref("ref");
+    CKeyValue ref;
     if (!KvLoad(ref, file)) return 1;
     const std::string refDump = KvDump(ref);
 
@@ -180,7 +180,7 @@ static int MultiThread(const char* file, int threads, int unique, int shared) {
             const char* firstPtr = pool.CStr(firstSlot);
             const std::string_view firstView = pool.View(firstSlot);
 
-            CKeyValue mine("mine");
+            CKeyValue mine;
             if (!KvLoad(mine, file)) ++me.errors;
             me.dump = KvDump(mine);
 

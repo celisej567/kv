@@ -15,10 +15,24 @@ struct KVInternal
     static uint32_t NameSlot(const CKeyValue& kv) { return kv.nameSlot_; }
     static void SetNameSlot(CKeyValue& kv, uint32_t slot) { kv.nameSlot_ = slot; }
 
-    static void SetValue(CKeyValue& kv, uint32_t name, CKeyValue::Type type, uint32_t value)
+    // `iv` is stored for Int, `fv` for Float; the other one is ignored.
+    static void StoreNumber(CKeyValue::Node& n, CKeyValue::Type type, int iv, float fv)
+    {
+        n.valueSlot = 0;
+
+        if (type == CKeyValue::Int)
+            n.intValue = iv;
+        else if (type == CKeyValue::Float)
+            n.floatValue = fv;
+        else
+            n.intValue = 0;
+    }
+
+    static void SetValue(CKeyValue& kv, uint32_t name, CKeyValue::Type type, uint32_t value, int iv = 0, float fv = 0.f)
     {
         CKeyValue::Node& n = kv.Upsert(name);
         n.type = type;
+        StoreNumber(n, type, iv, fv);
         n.valueSlot = value;
     }
 
@@ -30,10 +44,12 @@ struct KVInternal
         n.child = child.release();
     }
 
-    static void AddValue(CKeyValue& kv, uint32_t name, CKeyValue::Type type, uint32_t value, bool hidden = false)
+    static void AddValue(CKeyValue& kv, uint32_t name, CKeyValue::Type type, uint32_t value, bool hidden = false, int iv = 0,
+        float fv = 0.f)
     {
         CKeyValue::Node& n = kv.Append(name);
         n.type = type;
+        StoreNumber(n, type, iv, fv);
         n.valueSlot = value;
 
         if (hidden)

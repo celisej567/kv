@@ -79,7 +79,7 @@ static void CollectKeys(const CKeyValue& kv, std::vector<std::pair<const CKeyVal
 static int Bench(const char* in, const char* outPath, long lookups) {
     KVStringPool& pool = KVStringPool::Instance();
     const size_t rssStart = PeakRssBytes();
-    CKeyValue kv("Unnamed");
+    CKeyValue kv;
 
     auto t = Clock::now();
     if (!KvLoad(kv, in)) return 1;
@@ -108,7 +108,7 @@ static int Bench(const char* in, const char* outPath, long lookups) {
     // Loading the same file again must not add a single string to the pool.
     const size_t stringsAfterLoad = pool.Count();
     const size_t poolBytesAfterLoad = pool.MemoryUsage();
-    CKeyValue again("Again");
+    CKeyValue again;
     if (!KvLoad(again, in)) return 1;
 
     std::printf("load_ms %.3f\n", loadMs);
@@ -305,7 +305,7 @@ static int Api() {
         kv.AddKeyValue("blk", &inner);
         kv.AddString("g", "b");
         const std::string tmp = std::string(std::getenv("TMPDIR") ? std::getenv("TMPDIR") : "/tmp") + "/kv_api_dups.kv";
-        CKeyValue back("B");
+        CKeyValue back;
         const bool ok = kv.WriteToFile(tmp.c_str()) && back.LoadFromFile(tmp.c_str());
         std::remove(tmp.c_str());
         const auto blocks = back.GetKeyValues("blk");
@@ -408,7 +408,7 @@ static int Api() {
         report("uc_copy_independent", copy.Count() == 11 && kv.Count() == 6);
 
         // write: hidden entries are not written while UsesConditionals is true, everything when false
-        CKeyValue back("B"), backAll("B");
+        CKeyValue back, backAll;
         backAll.UsesConditionals(false);
         const bool w1 = kv.WriteToFile(out.c_str()) && back.LoadFromFile(out.c_str());
         kv.UsesConditionals(false);
@@ -541,6 +541,82 @@ static int Api() {
         std::remove(tmp.c_str());
         std::remove(out.c_str());
     }
+    {   // several roots: an unnamed object takes the first, a named one looks for its own
+        const std::string tmp = "/tmp/kv_cli_roots.kv";
+        if (FILE* f = std::fopen(tmp.c_str(), "wb")) {
+            std::fputs("\"First\" { a 1 }\n\"Second\" { b 2 sub { c 3 } }\n\"third\" { d 4 }\n\"Second\" { e 5 }\n", f);
+            std::fclose(f);
+        }
+        CKeyValue unnamed;
+        bool ok = std::string(unnamed.GetName()).empty();
+        ok = ok && unnamed.LoadFromFile(tmp.c_str()) && std::string(unnamed.GetName()) == "first" && unnamed.GetInt("a") == 1 && unnamed.Count() == 1;
+        CKeyValue empty("");
+        ok = ok && empty.LoadFromFile(tmp.c_str()) && std::string(empty.GetName()) == "first";
+        report("root_unnamed_takes_first", ok);
+
+        CKeyValue second("SECOND");  // case-insensitive; the first root with this name wins
+        ok = second.LoadFromFile(tmp.c_str()) && std::string(second.GetName()) == "second" && second.GetInt("b") == 2 &&
+             second.GetKeyValue("sub")->GetInt("c") == 3 && second.Count("e") == 0;
+        CKeyValue third("third"), first("first");
+        ok = ok && third.LoadFromFile(tmp.c_str()) && third.GetInt("d") == 4 && first.LoadFromFile(tmp.c_str()) && first.GetInt("a") == 1;
+        report("root_named_finds_own", ok);
+
+        CKeyValue missing("nothing");
+        missing.SetInt("old", 1);
+        ok = !missing.LoadFromFile(tmp.c_str()) && std::string(missing.GetName()) == "nothing" && missing.Count() == 0;
+        report("root_named_not_found", ok);
+
+        if (FILE* f = std::fopen(tmp.c_str(), "wb")) {
+            std::fputs("\"first\" { a 1 }\n\"broken\" { b 2\n", f);
+            std::fclose(f);
+        }
+        CKeyValue skipped("first"), skippedUnnamed;
+        ok = !skipped.LoadFromFile(tmp.c_str()) && !skippedUnnamed.LoadFromFile(tmp.c_str()) && std::string(skippedUnnamed.GetName()).empty();
+        report("root_other_roots_checked", ok);
+        std::remove(tmp.c_str());
+    }
+    {   // a name made of a space: copy, write, reload by name and as an unnamed object
+        const std::string tmp = "/tmp/kv_cli_space.kv";
+        CKeyValue sp(" ");
+        sp.SetInt("x", 1);
+        CKeyValue copy(sp), assigned;
+        assigned = sp;
+        bool ok = std::string(copy.GetName()) == " " && std::string(assigned.GetName()) == " " && copy.GetInt("x") == 1;
+        CKeyValue unnamedCopy{CKeyValue()};
+        ok = ok && std::string(unnamedCopy.GetName()).empty();
+        CKeyValue back, byName(" "), other("  ");
+        ok = ok && sp.WriteToFile(tmp.c_str()) && back.LoadFromFile(tmp.c_str()) && std::string(back.GetName()) == " " && back.GetInt("x") == 1;
+        ok = ok && byName.LoadFromFile(tmp.c_str()) && byName.GetInt("x") == 1 && !other.LoadFromFile(tmp.c_str());
+        report("name_with_space", ok);
+        std::remove(tmp.c_str());
+    }
+    {   // numbers are parsed once (at load / Set*) and kept in the node; Get* must agree with the text
+        const std::string tmp = "/tmp/kv_cli_numbers.kv";
+        if (FILE* f = std::fopen(tmp.c_str(), "wb")) {
+            std::fputs("\"R\" { a 2.99999999 b -2.99999999 c 7.5 d 5.0 e 16777217.0 f 3000000000.5 g -0 h 0.0 i 1.5e3 j 42 k -7 l +9 }\n", f);
+            std::fclose(f);
+        }
+        CKeyValue kv;
+        bool ok = kv.LoadFromFile(tmp.c_str());
+        ok = ok && kv.GetInt("a", -1) == 2 && kv.GetInt("b", -1) == -2 && kv.GetInt("c", -1) == 7 && kv.GetInt("d", -1) == 5;
+        ok = ok && kv.GetInt("e", -1) == 16777217 && kv.GetInt("f", -1) == -1 && kv.GetInt("i", -1) == 1500;
+        ok = ok && kv.GetFloat("c") == 7.5f && kv.GetFloat("j") == 42.f && kv.GetFloat("k") == -7.f && kv.GetInt("l") == 9;
+        ok = ok && kv.GetBool("g", true) == false && kv.GetBool("h", true) == false && kv.GetBool("a") && kv.GetBool("k");
+        kv.SetInt("n", -123);
+        kv.SetFloat("x", 0.1f);
+        kv.AddInt("n", 5);
+        kv.AddFloat("x", -2.5f);
+        ok = ok && kv.GetInt("n") == -123 && kv.GetFloat("x") == 0.1f && kv.GetInt("x", -1) == 0 && kv.GetFloat("n") == -123.f;
+        int sum = 0;
+        for (const auto c : kv.Children("n")) sum += c.GetInt();
+        ok = ok && sum == -118;
+        CKeyValue copy(kv), moved(std::move(copy));
+        ok = ok && moved.GetInt("a") == 2 && moved.GetFloat("x") == 0.1f && moved.GetInt("j") == 42;
+        kv.SetFloat("j", 1.25f);  // an Int entry becomes a Float
+        ok = ok && kv.GetFloat("j") == 1.25f && kv.GetInt("j") == 1;
+        report("numbers_kept_in_node", ok);
+        std::remove(tmp.c_str());
+    }
     {   // empty ranges
         CKeyValue kv("R");
         bool any = false;
@@ -562,7 +638,7 @@ int main(int argc, char** argv) {
 
     if (argc < 3) return 2;
     const std::string cmd = argv[1];
-    CKeyValue kv("Unnamed");
+    CKeyValue kv;
 
     if (cmd == "dump" && argc == 3) {
         if (!KvLoad(kv, argv[2])) return 1;

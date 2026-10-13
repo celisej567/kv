@@ -14,6 +14,8 @@ KVStringPool& Pool()
 }
 }  // namespace
 
+CKeyValue::CKeyValue() : nameSlot_(kvname::Intern("")) {}
+
 CKeyValue::CKeyValue(const char* name) : nameSlot_(kvname::Intern(name ? name : "")) {}
 
 CKeyValue::CKeyValue(const CKeyValue& other)
@@ -205,7 +207,11 @@ const CKeyValue::Node* CKeyValue::FindNode(const char* name) const
 CKeyValue::Node& CKeyValue::PushNode(uint32_t nameSlot, int firstSame)
 {
     const uint32_t newPos = static_cast<uint32_t>(nodes_.size());
-    nodes_.push_back(Node{nameSlot, String, false, {kInvalidSlot}});
+    Node fresh{};
+    fresh.nameSlot = nameSlot;
+    fresh.type = String;
+    fresh.valueSlot = kInvalidSlot;
+    nodes_.push_back(fresh);
 
     if (HasDups())
     {
@@ -274,13 +280,22 @@ std::string CKeyValue::StringOf(const Node& n)
 int CKeyValue::IntOf(const Node& n, int def)
 {
     if (n.type == Int)
-    {
-        int v = 0;
-        return kvnum::ParseInt(Pool().View(n.valueSlot), v) ? v : def;
-    }
+        return n.intValue;
 
     if (n.type == Float)
     {
+        // A float that is not a whole number truncates exactly. A whole one may stand for a longer
+        // decimal text that rounded up to it (2.99999999 -> 3.0f), so the text decides.
+        const float f = n.floatValue;
+
+        if (f > -8388608.f && f < 8388608.f)
+        {
+            const int t = static_cast<int>(f);
+
+            if (static_cast<float>(t) != f)
+                return t;
+        }
+
         double d = 0.0;
 
         if (!kvnum::ParseFloat(Pool().View(n.valueSlot), d) || !(d > -2147483649.0 && d < 2147483648.0))
@@ -295,16 +310,10 @@ int CKeyValue::IntOf(const Node& n, int def)
 float CKeyValue::FloatOf(const Node& n, float def)
 {
     if (n.type == Float)
-    {
-        float v = 0.f;
-        return kvnum::ParseFloat(Pool().View(n.valueSlot), v) ? v : def;
-    }
+        return n.floatValue;
 
     if (n.type == Int)
-    {
-        int v = 0;
-        return kvnum::ParseInt(Pool().View(n.valueSlot), v) ? static_cast<float>(v) : def;
-    }
+        return static_cast<float>(n.intValue);
 
     return def;
 }
@@ -314,24 +323,17 @@ bool CKeyValue::BoolOf(const Node& n, bool def)
     if (n.type == KeyValue)
         return def;
 
-    const std::string_view v = Pool().View(n.valueSlot);
-
     switch (n.type)
     {
         case Int:
-        {
-            int i = 0;
-            return kvnum::ParseInt(v, i) ? i != 0 : def;
-        }
+            return n.intValue != 0;
 
         case Float:
-        {
-            double d = 0.0;
-            return kvnum::ParseFloat(v, d) ? d != 0.0 : def;
-        }
+            return n.floatValue != 0.f;
 
         case String:
         {
+            const std::string_view v = Pool().View(n.valueSlot);
             auto is = [&](const char* word)
             {
                 size_t i = 0;
@@ -419,14 +421,14 @@ void CKeyValue::SetInt(const char* name, int value)
 {
     const uint32_t k = kvname::Intern(name ? name : "");
     const uint32_t v = Pool().Intern(kvnum::FormatInt(value));
-    KVInternal::SetValue(*this, k, Int, v);
+    KVInternal::SetValue(*this, k, Int, v, value);
 }
 
 void CKeyValue::SetFloat(const char* name, float value)
 {
     const uint32_t k = kvname::Intern(name ? name : "");
     const uint32_t v = Pool().Intern(kvnum::FormatFloat(value));
-    KVInternal::SetValue(*this, k, Float, v);
+    KVInternal::SetValue(*this, k, Float, v, 0, value);
 }
 
 void CKeyValue::SetKeyValue(const char* name, const CKeyValue* value)
@@ -456,14 +458,14 @@ void CKeyValue::AddInt(const char* name, int value)
 {
     const uint32_t k = kvname::Intern(name ? name : "");
     const uint32_t v = Pool().Intern(kvnum::FormatInt(value));
-    KVInternal::AddValue(*this, k, Int, v);
+    KVInternal::AddValue(*this, k, Int, v, false, value);
 }
 
 void CKeyValue::AddFloat(const char* name, float value)
 {
     const uint32_t k = kvname::Intern(name ? name : "");
     const uint32_t v = Pool().Intern(kvnum::FormatFloat(value));
-    KVInternal::AddValue(*this, k, Float, v);
+    KVInternal::AddValue(*this, k, Float, v, false, 0, value);
 }
 
 void CKeyValue::AddKeyValue(const char* name, const CKeyValue* value)

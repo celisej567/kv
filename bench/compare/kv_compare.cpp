@@ -91,7 +91,7 @@ size_t GetStrLen(Node* kv, const char* name) { return std::strlen(kv->GetString(
 const char* kBackend = "ours";
 
 Node* Load(const char* path) {
-    Node* kv = new CKeyValue("tmp");
+    Node* kv = new CKeyValue();
     if (!kv->LoadFromFile(path)) {
         delete kv;
         return nullptr;

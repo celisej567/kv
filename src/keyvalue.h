@@ -11,7 +11,7 @@ struct KVInternal;
 // Tree of key/value pairs. All strings (names and values) live in the global KVStringPool and the
 // tree stores only slot numbers and types. The type of a value comes from its text, quotes don't
 // matter: an integer is Int, a decimal number is Float, anything else is String. Numbers keep their
-// source text and are parsed on Get*. Names are case-insensitive and stored in lower case; values
+// source text (written back as read) and the parsed value, which is computed once on load / Set*. Names are case-insensitive and stored in lower case; values
 // are kept as they are. A name may occur many times.
 class CKeyValue
 {
@@ -24,15 +24,18 @@ public:
         KeyValue
     };
 
-    explicit CKeyValue(const char* name = "");
-    CKeyValue(const CKeyValue& other);  // deep copy
+    CKeyValue();                           // unnamed: LoadFromFile takes the name of the first root
+    explicit CKeyValue(const char* name);  // an empty name means unnamed
+    CKeyValue(const CKeyValue& other);     // deep copy
     CKeyValue(CKeyValue&& other) noexcept;
     CKeyValue& operator=(const CKeyValue& other);
     CKeyValue& operator=(CKeyValue&& other) noexcept;
     ~CKeyValue();
 
-    // On failure prints "file:line:col: message" to stderr, clears the contents (the name stays)
-    // and returns false.
+    // A file may hold several root objects. An unnamed object loads the first one and takes its
+    // name. A named one loads the first root with that name (case-insensitive); the other roots are
+    // only checked for matching braces. No such root -> "root "name" not found". On failure prints
+    // "file:line:col: message" to stderr, clears the contents (the name stays) and returns false.
     bool LoadFromFile(const char* path);
     bool WriteToFile(const char* path) const;
 
@@ -156,8 +159,16 @@ private:
         bool hidden;  // its condition was false
         union
         {
-            uint32_t valueSlot;  // String / Int / Float
-            CKeyValue* child;    // KeyValue
+            struct
+            {
+                uint32_t valueSlot;  // String / Int / Float: the text in the pool
+                union
+                {
+                    int32_t intValue;  // Int: the parsed value
+                    float floatValue;  // Float: the parsed value
+                };
+            };
+            CKeyValue* child;  // KeyValue
         };
     };
 
