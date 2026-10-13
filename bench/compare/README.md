@@ -78,56 +78,56 @@ session; ratios between the two libraries measured in the same process are more 
 
 ## Results
 
-Run of the final code (after several roots per file, the unnamed constructor, parsed numbers kept in the entry, and `SetString` deciding the type were added).
+Run of the final code (after several roots per file, the unnamed constructor, parsed numbers kept in the entry, `SetString` deciding the type, the faster parser and writer, and numbers without pooled text were added).
 File sizes: wide 2.8 MB, nested 10.8 MB, unique 7.9 MB, nested_big 86.7 MB.
 
 P2CE is Portal 2: Community Edition, measured through its own binaries (see the section below; the tools for it are not published).
 The Source, P2CE and ours columns come from one run on the same machine; the `ours -O3 native` column and the
 Threads table come from a second run of `run_compare.py`, which measured Source and ours again (the two runs of Source differ by a few
-percent, for example `nested` load 148 vs 146 ms; lookups in big objects by more, cache misses).
+percent, for example `nested` load 153.4 vs 153.2 ms; lookups in big objects by more, cache misses).
 
 #### Load file -> tree (best of 7, page cache warm)
 
 | file | Source | P2CE | ours | ours -O3 native | ours vs Source | ours vs P2CE |
 |---|---|---|---|---|---|---|
-| wide | 130.3 ms (21 MB/s) | 114.3 ms (24 MB/s) | 12.0 ms (225 MB/s) | 12.5 ms (217 MB/s) | 10.8x | 9.5x |
-| nested | 148.1 ms (70 MB/s) | 108.1 ms (95 MB/s) | 42.7 ms (241 MB/s) | 41.1 ms (251 MB/s) | 3.5x | 2.5x |
-| unique | 260.0 ms (29 MB/s) | 259.3 ms (29 MB/s) | 31.1 ms (244 MB/s) | 32.0 ms (237 MB/s) | 8.4x | 8.3x |
-| nested_big | 1417.3 ms (58 MB/s) | 1912.9 ms (43 MB/s) | 408.4 ms (202 MB/s) | 414.4 ms (200 MB/s) | 3.5x | 4.7x |
+| wide | 133.2 ms (20 MB/s) | 117.0 ms (23 MB/s) | 10.7 ms (254 MB/s) | 10.6 ms (257 MB/s) | 12.5x | 11.0x |
+| nested | 149.3 ms (69 MB/s) | 109.2 ms (94 MB/s) | 28.3 ms (364 MB/s) | 28.9 ms (356 MB/s) | 5.3x | 3.9x |
+| unique | 264.6 ms (29 MB/s) | 262.3 ms (29 MB/s) | 20.4 ms (372 MB/s) | 19.9 ms (381 MB/s) | 13.0x | 12.9x |
+| nested_big | 1367.7 ms (60 MB/s) | 1999.6 ms (41 MB/s) | 254.6 ms (325 MB/s) | 239.5 ms (345 MB/s) | 5.4x | 7.9x |
 
 #### Destroy tree
 
 | file | Source | P2CE | ours | ours -O3 native |
 |---|---|---|---|---|
 | wide | 1.5 ms | 0.7 ms | 0.1 ms | 0.1 ms |
-| nested | 6.7 ms | 3.7 ms | 2.3 ms | 2.2 ms |
-| unique | 3.2 ms | 1.6 ms | 2.1 ms | 2.0 ms |
-| nested_big | 57.3 ms | 30.6 ms | 17.1 ms | 17.5 ms |
+| nested | 6.8 ms | 3.4 ms | 1.9 ms | 1.9 ms |
+| unique | 3.2 ms | 1.6 ms | 1.7 ms | 1.7 ms |
+| nested_big | 56.6 ms | 31.0 ms | 16.0 ms | 15.8 ms |
 
 #### Save tree -> file (Source writes to a buffer, then fwrite)
 
 | file | Source | P2CE | ours | ours -O3 native | ours vs Source | ours vs P2CE | output size Source / P2CE / ours |
 |---|---|---|---|---|---|---|---|
-| wide | 14.9 ms (182 MB/s) | 12.3 ms (221 MB/s) | 2.5 ms (1106 MB/s) | 2.4 ms (1122 MB/s) | 6.1x | 5.0x | 2.8 / 2.8 / 2.8 MB |
-| nested | 53.4 ms (145 MB/s) | 40.0 ms (193 MB/s) | 12.1 ms (859 MB/s) | 15.6 ms (667 MB/s) | 4.4x | 3.3x | 8.1 / 8.1 / 10.9 MB |
-| unique | 20.8 ms (300 MB/s) | 14.3 ms (437 MB/s) | 6.3 ms (1198 MB/s) | 6.3 ms (1210 MB/s) | 3.3x | 2.3x | 6.5 / 6.5 / 7.9 MB |
-| nested_big | 423.8 ms (146 MB/s) | 326.7 ms (190 MB/s) | 115.9 ms (720 MB/s) | 156.8 ms (532 MB/s) | 3.7x | 2.8x | 65.1 / 65.1 / 87.5 MB |
+| wide | 15.5 ms (175 MB/s) | 13.2 ms (205 MB/s) | 2.0 ms (1197 MB/s) | 1.6 ms (1522 MB/s) | 7.6x | 6.5x | 2.8 / 2.8 / 2.5 MB |
+| nested | 55.5 ms (139 MB/s) | 41.4 ms (186 MB/s) | 10.0 ms (678 MB/s) | 7.8 ms (867 MB/s) | 5.5x | 4.1x | 8.1 / 8.1 / 7.1 MB |
+| unique | 20.8 ms (300 MB/s) | 14.7 ms (425 MB/s) | 4.9 ms (1256 MB/s) | 3.8 ms (1639 MB/s) | 4.2x | 3.0x | 6.5 / 6.5 / 6.4 MB |
+| nested_big | 431.2 ms (144 MB/s) | 338.5 ms (183 MB/s) | 83.4 ms (657 MB/s) | 65.4 ms (838 MB/s) | 5.2x | 4.1x | 65.1 / 65.1 / 57.5 MB |
 
 #### Memory of one loaded tree (fresh process; heap = malloc in use, RSS = resident growth)
 
 | file | file size | heap Source | heap P2CE | heap ours | RSS Source | RSS P2CE | RSS ours | peak RSS Source | peak RSS P2CE | peak RSS ours |
 |---|---|---|---|---|---|---|---|---|---|---|
-| wide | 2.8 MB | 10.7 MB (3.77x) | 10.9 MB (3.83x) | 12.1 MB (4.24x) | 12.8 MB | 16.9 MB | 10.5 MB | 15.4 MB | 16.9 MB | 11.9 MB |
-| nested | 10.8 MB | 41.6 MB (3.86x) | 38.1 MB (3.53x) | 17.2 MB (1.60x) | 43.7 MB | 40.7 MB | 16.7 MB | 53.9 MB | 53.1 MB | 17.6 MB |
-| unique | 7.9 MB | 22.4 MB (2.82x) | 22.8 MB (2.87x) | 27.4 MB (3.45x) | 26.6 MB | 27.4 MB | 23.2 MB | 34.0 MB | 35.4 MB | 24.8 MB |
-| nested_big | 86.7 MB | 337.8 MB (3.90x) | 304.7 MB (3.51x) | 131.8 MB (1.52x) | 336.2 MB | 317.8 MB | 128.7 MB | 422.3 MB | 405.5 MB | 136.3 MB |
+| wide | 2.8 MB | 10.7 MB (3.77x) | 10.9 MB (3.83x) | 8.9 MB (3.13x) | 12.9 MB | 16.9 MB | 8.0 MB | 15.5 MB | 16.9 MB | 9.7 MB |
+| nested | 10.8 MB | 41.6 MB (3.86x) | 38.1 MB (3.53x) | 16.4 MB (1.52x) | 43.7 MB | 40.6 MB | 16.2 MB | 54.2 MB | 53.0 MB | 17.1 MB |
+| unique | 7.9 MB | 22.4 MB (2.82x) | 22.8 MB (2.87x) | 27.4 MB (3.45x) | 26.6 MB | 27.4 MB | 23.4 MB | 34.3 MB | 35.6 MB | 24.8 MB |
+| nested_big | 86.7 MB | 337.8 MB (3.90x) | 304.7 MB (3.51x) | 131.8 MB (1.52x) | 336.2 MB | 317.7 MB | 127.3 MB | 422.2 MB | 405.5 MB | 134.1 MB |
 
 #### Lookups
 
 | file | keys in the top object | top-level by name: Source | P2CE | ours | 6-key GetInt / GetString: Source | P2CE | ours | values read |
 |---|---|---|---|---|---|---|---|---|
-| nested | 50000 | 62707 ns | 75447 ns | 51 ns | 23 / 19 ns | 25 / 20 ns | 14 / 22 ns | same |
-| wide | 100000 | 119479 ns | 74931 ns | 114 ns | - | - | - | - |
+| nested | 50000 | 66064 ns | 77141 ns | 37 ns | 28 / 19 ns | 24 / 20 ns | 13 / 22 ns | same |
+| wide | 100000 | 116766 ns | 74961 ns | 103 ns | - | - | - | - |
 
 Source's default key-name table (4 MB) overflowed on: nested_big; its numbers for those files use KeyValues::SetUseGrowableStringTable(true).
 
@@ -135,11 +135,11 @@ Source's default key-name table (4 MB) overflowed on: nested_big; its numbers fo
 
 | threads | Source | ours (thread-safe build) | ours vs Source |
 |---|---|---|---|
-| 1 | 60 MB/s | 194 MB/s | 3.2x |
-| 2 | 62 MB/s | 269 MB/s | 4.3x |
-| 4 | 66 MB/s | 216 MB/s | 3.3x |
-| 8 | 65 MB/s | 174 MB/s | 2.7x |
-| 16 | 65 MB/s | 196 MB/s | 3.0x |
+| 1 | 62 MB/s | 299 MB/s | 4.8x |
+| 2 | 65 MB/s | 553 MB/s | 8.5x |
+| 4 | 65 MB/s | 800 MB/s | 12.3x |
+| 8 | 66 MB/s | 1011 MB/s | 15.4x |
+| 16 | 64 MB/s | 829 MB/s | 13.0x |
 
 ### Noise in the `wide` lookup
 
@@ -185,17 +185,17 @@ The P2CE columns are in the tables of the *Results* section above (Load, Destroy
 
 **What the numbers say.**
 
-* **Load.** P2CE is 1.1x–1.4x faster than Source on `wide` and `nested` (114 vs 130 ms, 108 vs 148 ms), the same on
-  `unique`, and **1.3x slower on `nested_big`** (1.91 s vs 1.42 s; Source needed its growable name table there). For both,
-  the time per megabyte grows with the number of distinct key names (P2CE: `nested` 10 ms/MB, `nested_big` 22 ms/MB);
-  I did not investigate the cause. This library is 2.5x–9.5x faster than P2CE on load.
-* **Save.** P2CE is 1.2x–1.5x faster than Source; the output is byte-identical to Source's. This library is
-  2.3x–5.0x faster than P2CE and writes up to 35% more bytes.
+* **Load.** P2CE is 1.1x–1.4x faster than Source on `wide` and `nested` (117 vs 133 ms, 109 vs 149 ms), the same on
+  `unique`, and **1.5x slower on `nested_big`** (2.00 s vs 1.37 s; Source needed its growable name table there). For both,
+  the time per megabyte grows with the number of distinct key names (P2CE: `nested` 10 ms/MB, `nested_big` 23 ms/MB);
+  I did not investigate the cause. This library is 3.9x–12.9x faster than P2CE on load.
+* **Save.** P2CE is 1.2x–1.4x faster than Source; the output is byte-identical to Source's. This library is
+  3.0x–6.5x faster than P2CE and writes up to 12% fewer bytes.
 * **Memory.** On `nested` (repeated names and values) P2CE needs **8% less heap than Source** (3.5x the file size
-  against 3.9x) and 2.2x more than this library (1.6x). With distinct strings (`unique`, `wide`) P2CE and Source are the
-  same (2.9x / 3.8x), and this library needs 13%–22% more. Peak RSS of P2CE is between 4% below and 10% above Source's.
-* **Lookup by name.** The same design as Source (a linear walk over the siblings): 75 µs (P2CE) in a 50 000-key object
-  and 75 µs in a 100 000-key one, against 63 µs and 119 µs for Source. In small objects all three are the same: 24 / 18 ns for `GetInt` / `GetString`.
+  against 3.9x) and 2.3x more than this library (1.5x). With distinct strings (`unique`, `wide`) P2CE and Source are the
+  same (2.9x / 3.8x); this library needs 22% more on `unique` and 17% less on `wide`. Peak RSS of P2CE is between 4% below and 9% above Source's.
+* **Lookup by name.** The same design as Source (a linear walk over the siblings): 77 µs (P2CE) in a 50 000-key object
+  and 75 µs in a 100 000-key one, against 66 µs and 117 µs for Source. In small objects all three are close: 24–28 ns for `GetInt` and 19–20 ns for `GetString` (ours: 13 / 22 ns).
 * **Destroy.** About 2x faster than Source.
 
 #### P2CE: behaviour on small probes
@@ -251,35 +251,36 @@ own folder: [bench/source-kv/](../source-kv/README.md) holds the crate, the Rust
 
 ## Reading the numbers
 
-* **Load: 3.5x–10.8x faster.** On `nested` (typical data) 3.5x. The larger ratios on `wide` (10.8x) and `unique`
-  (8.4x) come from a Source design limit: its key-name table (`CKeyValuesSystem`) has a fixed number of
+* **Load: 5.3x–13.0x faster.** On `nested` (typical data) 5.3x. The larger ratios on `wide` (12.5x) and `unique`
+  (13.0x) come from a Source design limit: its key-name table (`CKeyValuesSystem`) has a fixed number of
   buckets with chains compared by `stricmp`, so with 100k+ distinct names every interning walks a long chain.
   Source also keeps the whole file in memory while parsing; ours streams.
-* **Save: 3.3x–6.1x faster.** Outputs are not byte-equal: Source quotes every value, rewrites numbers
-  (`7.11` -> `"7.110000"`) and indents with tabs; ours keeps the number text as read and indents with 4 spaces,
-  so ours writes up to 35% more bytes (the same for `wide`, whose values are mostly strings). Both write the same number of lines.
-* **Destroy: 1.5x–15x faster.**
-* **Lookups by name in a large object: about 1000x.** Source's `FindKey` walks the sibling list (54–72 µs with
-  50 000 keys, 116–127 µs with 100 000); ours uses an index for objects over 16 keys (51–63 ns, 88–150 ns for
+* **Save: 4.2x–7.6x faster.** Outputs are not byte-equal: Source quotes every value and rewrites numbers
+  (`7.11` -> `"7.110000"`); ours keeps the number text as read, unquoted, so ours writes up to 12% fewer bytes. Source also puts two tabs between a key and its value, ours one. Both indent with tabs and write the same number of lines.
+* **Destroy: 1.9x–15x faster.**
+* **Lookups by name in a large object: about 1000–2000x.** Source's `FindKey` walks the sibling list (66 µs with
+  50 000 keys, 117 µs with 100 000); ours uses an index for objects over 16 keys (37 ns, 103 ns for
   100 000 keys, see the noise note). In small objects (6 keys), where games spend most of their time, `GetString` is
-  about 20 ns for all three; `GetInt` is 14 ns for ours against 23–25 ns for Source and P2CE, because the number is kept
+  19–22 ns for all three; `GetInt` is 13 ns for ours against 24–28 ns for Source and P2CE, because the number is kept
   in the entry and not parsed again.
-* **Memory depends on the data.** On `nested` (repeated names and values) ours uses **2.4x–2.6x less heap** (1.5x–1.6x
-  of the file size vs 3.9x) because every distinct string is stored once; Source allocates a node and a separate
-  string per value. On `unique` and `wide` (every string distinct) **ours uses 13%–22% more heap**: a pool entry,
-  a hash bucket and a node cost more than Source's per-node string when there is nothing to deduplicate. Peak RSS is
+* **Memory depends on the data.** On `nested` (repeated names and values) ours uses **2.5x less heap** (1.5x
+  of the file size vs 3.9x) because every distinct string is stored once and a canonical number has no text at all; Source allocates a node and a separate
+  string per value. On `unique` (every string distinct) **ours uses 22% more heap**: a pool entry,
+  a hash bucket and a node cost more than Source's per-node string when there is nothing to deduplicate; on `wide` ours is 17% lower
+  because a third of its values are numbers, which need no pooled text. Peak RSS is
   lower for ours on every file (up to 3x on `nested_big`), because Source holds the whole file in memory while parsing.
 * **Threads.** Source cannot load two files at once: `LoadFromBuffer` parses into a process-wide static token
   buffer, and unsynchronised runs with 4 threads crashed. The Source column therefore serialises parsing with a
-  mutex and stays at ~63 MB/s. Ours is thread-safe and 2.7x–4.3x faster in total, but **does not scale**: about 174–270
-  MB/s from 1 to 16 threads, because every interned token takes a shared lock on one pool (the reader counter is a
-  cache line all threads fight over).
+  mutex and stays at ~60 MB/s. Ours is thread-safe and 4.8x–15.4x faster in total and **scales up to 8 threads**
+  (299 MB/s on one thread, 1011 MB/s on eight, 829 on 16 threads of the 8 cores): the parser keeps a small cache of
+  recently seen strings in front of the pool, so repeated names and values never touch the shared pool or its lock;
+  only strings seen for the first time take it.
 
 ## Memory of the library itself, per data type
 
 `sizeof(CKeyValue)` is 40 bytes; an entry is 16 bytes (`nameSlot`, type, `hidden` flag, value slot plus the parsed number, or a child
 pointer); the string pool stores each distinct string once (12 bytes of bookkeeping + the characters + a hash
-bucket). Numbers are stored as their source text and as the parsed `int` / `float` next to the text slot (in the same 16 bytes), so `Get*` does not parse. The
+bucket). Numbers are stored as the parsed `int` / `float` next to the value slot (in the same 16 bytes), so `Get*` does not parse; their text is stored in the pool only when it is not the canonical one (`+5`, `007`, `1.50`), otherwise it is made from the number. The
 type of each value is decided at load time from the text, as Source does.
 
 ## Behaviour that is different from Source
@@ -306,7 +307,7 @@ outside quotes; an empty key is an error.
    (`SetCondition`); Source searches a fixed list by substring, and `$OSX` is always false in it.
 7. **Comments**: ours also accepts `/* ... */` (only at the start of a token); Source has only `//`.
 8. **Token limit**: Source cuts tokens at 4096 characters; ours has no limit.
-9. **Writing**: Source writes tabs, quotes every value and rewrites numbers; ours writes 4 spaces, keeps number text.
+9. **Writing**: Source indents with tabs, separates a key from its value with two tabs, quotes every value and rewrites numbers; ours indents with tabs, separates with one tab, keeps number text as read and does not quote numbers.
    With escapes off a quote inside a value cannot be written correctly (same as Source); with
    `UsesEscapeSequences(true)` the round trip is exact.
 10. **Key names** are case-insensitive and stored in lower case (`GetName()` returns lower case); Source keeps the original case.
@@ -318,7 +319,7 @@ for big objects, duplicate keys with first-wins `Get*`, a thread-safe global str
 
 ## Where this library is weaker
 
-* More heap than Source on files where almost every string is distinct.
-* Parallel loading does not scale (see *Threads*).
+* More heap than Source on files where almost every string is distinct and not numeric (`unique`: +22%).
+* Parallel loading stops scaling beyond the physical cores, and strings seen for the first time still take the pool's lock (see *Threads*).
 * No `#include`/`#base`, no several roots in one tree, or tolerant parsing (see the list above).
 * Removing a key is O(n) (the duplicate chains and the name index are rebuilt).

@@ -252,7 +252,7 @@ def write_large_values(cli, tmp):
         src.append(f'    "sub{i}" {{ "x" "{"y" * n}" }}')
     src.append("}")
     path = Path(tmp) / "large_values.kv"
-    path.write_text("\n".join(src) + "\n")
+    path.write_text("\n".join(src) + "\n", encoding="utf-8", newline="\n")
     out = Path(tmp) / "large_values_out.kv"
     rc, _, se = run(cli, "write", path, out)
     check("write", rc == 0, f"exit {rc}: {se}")
@@ -384,7 +384,7 @@ def branching_tree(depth, fan):
 def deep_branching(cli, tmp):
     text, want = branching_tree(depth=7, fan=3)  # 3279 objects, 7 levels, siblings at every level
     path = Path(tmp) / "branching.kv"
-    path.write_text(text, newline="\n")
+    path.write_text(text, encoding="utf-8", newline="\n")
     rc, so, se = run(cli, "dump", path)
     check("dump", rc == 0 and so == want, f"rc={rc} {se[:200]} (got {len(so.splitlines())} lines, want {len(want.splitlines())})")
     mt_load("dump", path, 0, want)
@@ -407,7 +407,7 @@ def chain(n):
 
 def depth_limit(cli, tmp):
     ok = Path(tmp) / "chain512.kv"
-    ok.write_text(chain(512), newline="\n")
+    ok.write_text(chain(512), encoding="utf-8", newline="\n")
     rc, so, se = run(cli, "get", ok, "/".join(["a"] * 512) + "/x", "int")
     check("512 levels", rc == 0 and so.strip() == "1", f"rc={rc} out={so!r} {se[:100]}")
     out = Path(tmp) / "chain512.out"
@@ -415,7 +415,7 @@ def depth_limit(cli, tmp):
     rc2, so, _ = run(cli, "get", out, "/".join(["a"] * 512) + "/x", "int")
     check("512 levels roundtrip", rc == 0 and rc2 == 0 and so.strip() == "1", "write/reload of 512 levels failed")
     bad = Path(tmp) / "chain513.kv"
-    bad.write_text(chain(513), newline="\n")
+    bad.write_text(chain(513), encoding="utf-8", newline="\n")
     rc, _, se = run(cli, "dump", bad)
     check("513 levels", rc == 1 and "nesting too deep" in se, f"rc={rc} stderr={se[:100]!r}")
     return "512 levels load/write/reload, 513 rejected"
@@ -457,7 +457,7 @@ def dataset(tmp, kind, n):
     key = (kind, n)
     if key not in _datasets:
         path = Path(tmp) / f"{kind}{n}.kv"
-        path.write_text(gen_kv.GENERATORS[kind](n), newline="\n")
+        path.write_text(gen_kv.GENERATORS[kind](n), encoding="utf-8", newline="\n")
         _datasets[key] = path
     return _datasets[key]
 
@@ -517,7 +517,7 @@ def perf_dedup(cli, tmp):
     if not optimized(cli):
         raise Skip("not an optimized build")
     path = dataset(tmp, "nested", 50000)
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     tokens = {a or b for a, b in re.findall(r'"([^"]*)"|([^\s{}"]+)', text)}
     # a number written the way the library would write it is not kept in the pool, its text is made from the value
     canonical = re.compile(r"-?(0|[1-9][0-9]{0,8})|[0-9]+\.[0-9]*[1-9]")  # digits of a float32 round-trip up to 7
@@ -638,7 +638,7 @@ def pool_large_strings(build):
 def pool_threads(cli, tmp):
     """Concurrent load + intern from many threads: one slot per distinct string, stable pointers, consistent trees."""
     nested = Path(tmp) / "mt_nested.kv"
-    nested.write_text(gen_kv.nested(20000), newline="\n")
+    nested.write_text(gen_kv.nested(20000), encoding="utf-8", newline="\n")
     summary = []
     for threads, unique, shared, kv in ((8, 20000, 5000, CASES / "good.kv"),
                                          (16, 3000, 3000, nested),
@@ -700,15 +700,18 @@ def main():
     if len(sys.argv) < 2:
         print(__doc__)
         return 2
-    cli = sys.argv[1]
+    # messages may hold any text; a console that is not UTF-8 (Windows) must not turn a report into a crash
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    cli = str(Path(sys.argv[1]).resolve())  # never looked up on PATH, whatever the working directory is
     wanted = set()
     TOOLS["mt"] = find_tool(cli, "kv_stress")
     TOOLS["st"] = find_tool(cli, "kv_stress_st")
     for a in sys.argv[2:]:
         if a.startswith("--stress="):
-            TOOLS["mt"] = a[len("--stress="):]
+            TOOLS["mt"] = str(Path(a[len("--stress="):]).resolve())
         elif a.startswith("--stress-st="):
-            TOOLS["st"] = a[len("--stress-st="):]
+            TOOLS["st"] = str(Path(a[len("--stress-st="):]).resolve())
         else:
             wanted.add(a)
     for build, tool in (("mt", "kv_stress"), ("st", "kv_stress_st")):

@@ -12,20 +12,35 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #if defined(_WIN32)
+#include <process.h>
 #include <windows.h>
 #include <psapi.h>
 #elif defined(__APPLE__)
 #include <sys/resource.h>
+#include <unistd.h>
+#else
+#include <unistd.h>
 #endif
 
 #include "keyvalue.h"
 #include "keyvalue_internal.h"
 #include "kv_dump.h"
+
+// A file name in the system temp directory that no other run uses (the scenarios write and delete files).
+static std::string TempPath(const char* name) {
+#if defined(_WIN32)
+    const long pid = static_cast<long>(_getpid());
+#else
+    const long pid = static_cast<long>(getpid());
+#endif
+    return (std::filesystem::temp_directory_path() / ("kv_" + std::to_string(pid) + "_" + name)).string();
+}
 
 // Peak resident set size in bytes (0 if unknown).
 static size_t PeakRssBytes() {
@@ -304,7 +319,7 @@ static int Api() {
         kv.AddString("g", "a");
         kv.AddKeyValue("blk", &inner);
         kv.AddString("g", "b");
-        const std::string tmp = std::string(std::getenv("TMPDIR") ? std::getenv("TMPDIR") : "/tmp") + "/kv_api_dups.kv";
+        const std::string tmp = TempPath("kv_api_dups.kv");
         CKeyValue back;
         const bool ok = kv.WriteToFile(tmp.c_str()) && back.LoadFromFile(tmp.c_str());
         std::remove(tmp.c_str());
@@ -330,7 +345,7 @@ static int Api() {
         report("dups_clear", kv.Count() == 1 && kv.Count("x") == 1 && names(kv, "x") == "3");
     }
     {   // application-defined conditions, overriding a built-in one, "$" optional, case-insensitive
-        const std::string tmp = std::string(std::getenv("TMPDIR") ? std::getenv("TMPDIR") : "/tmp") + "/kv_api_cond.kv";
+        const std::string tmp = TempPath("kv_api_cond.kv");
         if (FILE* f = std::fopen(tmp.c_str(), "wb")) {
             std::fputs("R { a 1 [$MYGAME] b 1 [!$MYGAME] c 1 [$X360] d 1 [$MyGame&&$KVTRUE] }\n", f);
             std::fclose(f);
@@ -354,9 +369,8 @@ static int Api() {
         report("conditions_custom", before == "b" && on == "ad" && off == "b" && x360 == "bc");
     }
     {   // UsesConditionals: hidden entries exist but accessors skip them; false shows everything
-        const std::string dir = std::getenv("TMPDIR") ? std::getenv("TMPDIR") : "/tmp";
-        const std::string tmp = dir + "/kv_api_uc.kv";
-        const std::string out = dir + "/kv_api_uc_out.kv";
+        const std::string tmp = TempPath("kv_api_uc.kv");
+        const std::string out = TempPath("kv_api_uc_out.kv");
         if (FILE* f = std::fopen(tmp.c_str(), "wb")) {
             std::fputs("R { a 1 [$X360] a 2 [$KVTRUE] a 3 b [$X360] \"hid\" c [$X360] { z 1 } d 1 [$X360] "
                        "e [$X360] { z 1 } e { z 2 } f 1 }\n", f);
@@ -497,7 +511,7 @@ static int Api() {
         report("remove_key_all", kv.Count() == 0 && kv.GetInt("k0", -1) == -1);
     }
     {   // removal and conditions: switched-off entries are absent, and stay when removing
-        const std::string tmp = "/tmp/kv_cli_remove.kv";
+        const std::string tmp = TempPath("kv_cli_remove.kv");
         if (FILE* f = std::fopen(tmp.c_str(), "wb")) {
             std::fputs("\"R\"\n{\n a 1\n a 2 [$X360]\n a 3\n}\n", f);
             std::fclose(f);
@@ -510,7 +524,7 @@ static int Api() {
         std::remove(tmp.c_str());
     }
     {   // UsesEscapeSequences: off by default, propagates, survives LoadFromFile, controls writing
-        const std::string tmp = "/tmp/kv_cli_esc.kv", out = "/tmp/kv_cli_esc.out";
+        const std::string tmp = TempPath("kv_cli_esc.kv"), out = TempPath("kv_cli_esc.out");
         if (FILE* f = std::fopen(tmp.c_str(), "wb")) {
             std::fputs("\"R\"\n{\n a \"x\\ny\"\n sub { b \"p\\\\q\" }\n}\n", f);
             std::fclose(f);
@@ -542,7 +556,7 @@ static int Api() {
         std::remove(out.c_str());
     }
     {   // several roots: an unnamed object takes the first, a named one looks for its own
-        const std::string tmp = "/tmp/kv_cli_roots.kv";
+        const std::string tmp = TempPath("kv_cli_roots.kv");
         if (FILE* f = std::fopen(tmp.c_str(), "wb")) {
             std::fputs("\"First\" { a 1 }\n\"Second\" { b 2 sub { c 3 } }\n\"third\" { d 4 }\n\"Second\" { e 5 }\n", f);
             std::fclose(f);
@@ -576,7 +590,7 @@ static int Api() {
         std::remove(tmp.c_str());
     }
     {   // a name made of a space: copy, write, reload by name and as an unnamed object
-        const std::string tmp = "/tmp/kv_cli_space.kv";
+        const std::string tmp = TempPath("kv_cli_space.kv");
         CKeyValue sp(" ");
         sp.SetInt("x", 1);
         CKeyValue copy(sp), assigned;
@@ -591,7 +605,7 @@ static int Api() {
         std::remove(tmp.c_str());
     }
     {   // numbers are parsed once (at load / Set*) and kept in the node; Get* must agree with the text
-        const std::string tmp = "/tmp/kv_cli_numbers.kv";
+        const std::string tmp = TempPath("kv_cli_numbers.kv");
         if (FILE* f = std::fopen(tmp.c_str(), "wb")) {
             std::fputs("\"R\" { a 2.99999999 b -2.99999999 c 7.5 d 5.0 e 16777217.0 f 3000000000.5 g -0 h 0.0 i 1.5e3 j 42 k -7 l +9 }\n", f);
             std::fclose(f);
@@ -635,7 +649,7 @@ static int Api() {
         report("setstring_classifies", ok);
     }
     {   // GetString on every type: numbers give their text as written, a block gives the default
-        const std::string tmp = "/tmp/kv_cli_getstring.kv";
+        const std::string tmp = TempPath("kv_cli_getstring.kv");
         if (FILE* f = std::fopen(tmp.c_str(), "wb")) {
             std::fputs("\"R\" { i 007 f 1.50 q \"5\" s abc b { x 1 } }\n", f);
             std::fclose(f);

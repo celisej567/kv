@@ -26,6 +26,7 @@ COMPARE = HERE.parent / "compare"
 sys.path.insert(0, str(ROOT / "tests"))
 import gen_kv  # noqa: E402
 
+CXX = os.environ.get("CXX", "g++")  # GCC- or Clang-compatible
 LIB_FILES = ("kv_string_pool.cpp", "keyvalue.cpp", "kv_parser.cpp", "kv_writer.cpp")
 
 
@@ -52,6 +53,8 @@ def table(title, header, rows):
 
 
 def main():
+    if not sys.platform.startswith("linux"):
+        sys.exit("run_sourcers.py needs Linux: the benchmark programs read glibc/proc memory counters")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out")
     ap.add_argument("--crate", help="checkout of crates/source-kv (default: crate/ next to this script)")
@@ -85,7 +88,7 @@ def main():
     sh(["cargo", "build", "--release", "--manifest-path", str(rs / "Cargo.toml"), "--target-dir", str(out / "cargo")],
        env={**os.environ, "RUSTFLAGS": "-C target-cpu=native"})  # same CPU target as our -march=native
     exe = {"rs": out / "cargo" / "release" / "kv_compare_rs", "ours": out / "cmp_ours", "ours_mt": out / "cmp_ours_mt"}
-    base = ["g++", "-std=c++17", "-O3", "-march=native", "-DNDEBUG", "-DBACKEND_OURS", f"-I{src}", "-pthread", str(COMPARE / "kv_compare.cpp"), *lib_sources]
+    base = [CXX, "-std=c++17", "-O3", "-march=native", "-DNDEBUG", "-DBACKEND_OURS", f"-I{src}", "-pthread", str(COMPARE / "kv_compare.cpp"), *lib_sources]
     sh([*base, "-o", exe["ours"]])
     sh([*base, "-DKV_THREAD_SAFE", "-o", exe["ours_mt"]])
 
@@ -101,7 +104,7 @@ def main():
     cpu = next((l.split(":", 1)[1].strip() for l in open("/proc/cpuinfo") if l.startswith("model name")), platform.processor())
     print(f"## source-kv (Rust) vs this library\n\nCPU: {cpu}, {os.cpu_count()} threads; {platform.platform()}")
     print("source-kv: `cargo build --release` (opt-level 3, LTO, target-cpu=native), parsed with `Deserializer::parse_root` into `Value`; "
-          "ours: g++ -O3 -march=native.")
+          "ours: -O3 -march=native.")
     print("File sizes: " + ", ".join(f"{n} {files[n].stat().st_size / 1e6:.1f} MB" for n in files))
     L = [("rs", "source-kv"), ("ours", "ours")]
 

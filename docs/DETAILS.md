@@ -451,18 +451,18 @@ The error line/column point at the offending token (for end-of-file errors, at t
 `bool WriteToFile(const char* path) const`
 
 * Returns `false` if the file cannot be created or a write fails.
-* Format: the object's name in quotes on a line, then the block. Everything is indented with **4 spaces**,
+* Format: the object's name in quotes on a line, then the block. Everything is indented with **one tab per level** and a key is separated from its value by **one tab**,
   braces on their own lines:
 
   ```
   "game"
   {
-      "name" "My game"
-      "version" 3
-      "window"
-      {
-          "width" 1280
-      }
+  	"name"	"My game"
+  	"version"	3
+  	"window"
+  	{
+  		"width"	1280
+  	}
   }
   ```
 * Names are always written in quotes, in lower case.

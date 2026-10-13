@@ -56,6 +56,10 @@ target_link_libraries(kv_cli PRIVATE kv)
 if(WIN32)
     target_link_libraries(kv_cli PRIVATE psapi)
 endif()
+# std::filesystem (temp files of the API scenarios) is a separate library in GCC before 9
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9.0)
+    target_link_libraries(kv_cli PRIVATE stdc++fs)
+endif()
 
 # Pool memory/threading driver, built against both library variants (see tools/kv_stress.cpp).
 add_executable(kv_stress tools/kv_stress.cpp)

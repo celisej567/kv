@@ -36,8 +36,8 @@ public:
 
     void Indent(int level)
     {
-        const size_t n = static_cast<size_t>(level) * 4;
-        std::memset(Room(n), ' ', n);
+        const size_t n = static_cast<size_t>(level);
+        std::memset(Room(n), '\t', n);
         Commit(n);
     }
 
@@ -94,16 +94,16 @@ public:
     // Only without escape sequences (then nothing has to be translated).
     void Line(int level, std::string_view name, std::string_view value, bool quoteValue)
     {
-        const size_t indent = static_cast<size_t>(level) * 4;
+        const size_t indent = static_cast<size_t>(level);
         char* p = Room(indent + name.size() + value.size() + 6);
         char* const start = p;
-        std::memset(p, ' ', indent);
+        std::memset(p, '\t', indent);
         p += indent;
         *p++ = '"';
         std::memcpy(p, name.data(), name.size());
         p += name.size();
         *p++ = '"';
-        *p++ = ' ';
+        *p++ = '\t';
 
         if (quoteValue)
             *p++ = '"';
@@ -193,7 +193,7 @@ void WriteObject(Out& out, const CKeyValue& kv, int level)
         }
         else
         {
-            out.Put(' ');
+            out.Put('\t');
             char num[KVInternal::kNumberText];
             const std::string_view text = KVInternal::Text(n, num);
 

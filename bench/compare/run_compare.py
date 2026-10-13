@@ -29,6 +29,7 @@ SRC_FLAGS = ("-std=c++11 -fpermissive -w -O2 -funsafe-math-optimizations -ftree-
              "-pthread -march=core2 -mfpmath=sse -fno-strict-aliasing -fvisibility=hidden -DPLATFORM_64BITS=1 "
              "-D_GLIBCXX_USE_CXX11_ABI=0 -DLINUX=1 -D_LINUX=1 -DPOSIX=1 -D_POSIX=1 -DPLATFORM_POSIX=1 -DGNUC "
              "-DNO_HOOK_MALLOC -D_DLL_EXT=.so -DNO_MEMOVERRIDE_NEW_DELETE=1 -DNDEBUG -DCOMPILER_GCC=1").split()
+CXX = os.environ.get("CXX", "g++")  # GCC-compatible: the flags below are GCC's
 LIB_SOURCES = [str(ROOT / "src" / f) for f in ("kv_string_pool.cpp", "keyvalue.cpp", "kv_parser.cpp", "kv_writer.cpp")]
 
 
@@ -46,10 +47,10 @@ def build(out, src_engine):
         if not (s / lib).exists():
             sys.exit(f"{s / lib} not found: build source-engine first (see --help)")
     exe["source"] = out / "cmp_source"
-    sh(["g++", *SRC_FLAGS, "-DBACKEND_SOURCE", f"-I{s}/public", f"-I{s}/public/tier0", f"-I{s}/public/tier1", f"-I{s}/common",
+    sh([CXX, *SRC_FLAGS, "-DBACKEND_SOURCE", f"-I{s}/public", f"-I{s}/public/tier0", f"-I{s}/public/tier1", f"-I{s}/common",
         str(HERE / "kv_compare.cpp"), "-o", exe["source"], f"-L{s}/build/tier0", f"-L{s}/build/vstdlib",
         f"{s}/build/tier1/libtier1.a", "-ltier0", "-lvstdlib", f"-Wl,-rpath,{s}/build/tier0:{s}/build/vstdlib", "-ldl"])
-    common = ["g++", "-std=c++17", "-DBACKEND_OURS", f"-I{ROOT / 'src'}", "-pthread", str(HERE / "kv_compare.cpp"), *LIB_SOURCES]
+    common = [CXX, "-std=c++17", "-DBACKEND_OURS", f"-I{ROOT / 'src'}", "-pthread", str(HERE / "kv_compare.cpp"), *LIB_SOURCES]
     # same optimisation flags as Source, single thread build / thread-safe build / our own default
     variants = {
         "ours": ["-O2", "-march=core2", "-mfpmath=sse", "-ffast-math"],
@@ -86,6 +87,8 @@ def table(title, header, rows):
 
 
 def main():
+    if not sys.platform.startswith("linux"):
+        sys.exit("run_compare.py needs Linux: it links Source Engine's Linux libraries and the benchmark reads glibc/proc memory counters")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--source-engine", required=True)
     ap.add_argument("--out")

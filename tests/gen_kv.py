@@ -57,5 +57,5 @@ GENERATORS = {"wide": wide, "nested": nested, "unique": unique}
 
 if __name__ == "__main__":
     kind, n, path = sys.argv[1], int(sys.argv[2]), sys.argv[3]
-    with open(path, "w", newline="\n") as f:
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write(GENERATORS[kind](n))
