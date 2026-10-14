@@ -246,6 +246,11 @@ def encodings(cli, tmp):
     return f"{len(rows)} rows"
 
 
+def errors_only(stderr):
+    """stderr without the "[kv] ..." lines of a KV_VERBOSE build."""
+    return "".join(l for l in stderr.splitlines(keepends=True) if not l.startswith("[kv] "))
+
+
 def utf16_equivalence(cli, tmp):
     """Every valid-UTF-8 case file, converted to UTF-16 (LE and BE, with BOM), must load exactly as the original:
     same dump, same exit code, same error text and position (the converted text is the original UTF-8)."""
@@ -265,6 +270,7 @@ def utf16_equivalence(cli, tmp):
             for c in ("dump", "dumpall"):
                 rc, so, se = run(cli, c, f)
                 wrc, wso, wse = want[c]
+                se, wse = errors_only(se), errors_only(wse)  # a KV_VERBOSE build adds "[kv] ..." lines
                 check(f"{kv.stem}/{label}/{c}", (rc, so) == (wrc, wso) and se.replace(str(f), str(kv)) == wse,
                       f"utf-8: {wrc} {wse!r}; utf-16: {rc} {se!r}")
             n += 1
@@ -317,8 +323,31 @@ def fail_cleanup(cli, tmp):
 
 
 def misc_write_unwritable(cli, tmp):
-    rc, _, _ = run(cli, "write", CASES / "good.kv", Path(tmp) / "no_such_dir" / "x.kv")
+    rc, _, se = run(cli, "write", CASES / "good.kv", Path(tmp) / "no_such_dir" / "x.kv")
     check("write-unwritable", rc == 1, f"exit {rc}, expected 1")
+    check("write-unwritable", "cannot create file" in se, f"stderr {se!r}")
+
+
+def logging(cli, tmp):
+    """By default the library prints errors only; a build with KV_VERBOSE adds "[kv] ..." lines (and only those)."""
+    _, info, _ = run(cli, "info")
+    verbose = "verbose=1" in info
+    good = CASES / "good.kv"
+    out = Path(tmp) / "log.out"
+    for what, args in (("load", ("dump", good)), ("write", ("write", good, out))):
+        rc, _, se = run(cli, *args)
+        check(what, rc == 0, f"exit {rc}")
+        lines = [l for l in se.splitlines() if l]
+        if not verbose:
+            check(what, lines == [], f"a default build printed {lines}")
+        else:
+            check(what, bool(lines) and all(l.startswith("[kv] ") for l in lines), f"lines {lines}")
+            want = "loaded" if what == "load" else "wrote"
+            check(what, any(l.startswith("[kv] " + want) for l in lines), f"no '{want}' line in {lines}")
+    # errors are printed either way, in the "file:line:col: message" form without the prefix
+    rc, _, se = run(cli, "dump", CASES / "err_trailing.kv")
+    check("error", rc == 1 and any(l.startswith(str(CASES / "err_trailing.kv") + ":") for l in se.splitlines()), f"stderr {se!r}")
+    return "verbose build" if verbose else "default build"
 
 
 def write_large_values(cli, tmp):
@@ -805,7 +834,7 @@ def main():
 
     tests = [(kv.stem, lambda c, t, kv=kv: test_case(c, kv, t))
              for kv in sorted(CASES.glob("*.kv"))]
-    tests += [(f.__name__, f) for f in (misc_missing_file, misc_no_args, misc_bad_command, misc_write_unwritable, fail_cleanup, write_large_values, misc_kvdef, misc_api, anonymous_root, encodings, utf16_equivalence, utf16_boundaries, dups_gameinfo, dups_blocks,
+    tests += [(f.__name__, f) for f in (misc_missing_file, misc_no_args, misc_bad_command, misc_write_unwritable, logging, fail_cleanup, write_large_values, misc_kvdef, misc_api, anonymous_root, encodings, utf16_equivalence, utf16_boundaries, dups_gameinfo, dups_blocks,
                                          stream_boundaries, stream_long_tokens, stream_error_position,
                                          deep_branching, depth_limit)]
     tests += [("perf_wide", perf_dataset("wide", 100000)),

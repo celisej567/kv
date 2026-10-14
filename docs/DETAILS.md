@@ -535,6 +535,24 @@ How to read it:
   to UTF-8 first.
 * A quote (`22`) is never a trail byte in any of these encodings, so a quoted value without escape sequences is safe.
 
+### Logging
+
+By default the library prints **errors only**, to `stderr`: `path:line:col: message` for a failed load (or `path:1:1: cannot
+open file`), and `path: cannot create file` / `path: write error` for a failed write. Nothing is printed on success.
+
+Detailed logging is a compile-time switch: build with `-DKV_VERBOSE` (CMake: `-DKV_VERBOSE=ON`). The code is in
+`src/kv_log.h`; with the define off, the log calls compile to nothing and cost nothing. Every line starts with `[kv] `:
+
+    [kv] loading 'a.kv' (first root, conditions on, escapes off)
+    [kv] UTF-16 LE BOM: converting to UTF-8 while reading      (or: UTF-8 BOM skipped)
+    [kv] root 'Root': loading                                    (or: skipped (only braces are matched))
+    [kv] condition '[$LINUX && $POSIX]' -> true
+    [kv] loaded 'a.kv': 149 bytes of text, root 'root', 0.15 ms
+    [kv] load of 'a.kv' failed: the object is cleared
+    [kv] writing 'b.kv' (escapes off) / wrote 'b.kv': 94 bytes / write of 'b.kv' failed: the partial file is removed
+
+The error lines keep their own form without the prefix, so a log line can be told from an error by it.
+
 ---
 
 ## 10. Writing a file

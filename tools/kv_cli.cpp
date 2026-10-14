@@ -6,7 +6,7 @@
 //   kv_cli list <file> <path> [name]        children of the object at <path> ('.' = root), only those called
 //                                           [name] if given: "name<TAB>type<TAB>value" lines, then "#count N"
 //   kv_cli api                              run the API scenarios (see Api()), "name 1|0" lines
-//   kv_cli info                             "optimized=0|1" (perf numbers are only meaningful when 1)
+//   kv_cli info                             "optimized=0|1" (perf numbers are only meaningful when 1), "verbose=0|1"
 //   kv_cli bench <file> <out> <lookups>     load once, then look keys up, then write; prints "name value" lines
 // Exit code: 0 ok, 1 load/write failed, 2 usage.
 #include <chrono>
@@ -684,6 +684,11 @@ int main(int argc, char** argv) {
     CKeyValue::SetCondition("KVTRUE", true);  // a condition that is true on every platform, for the tests
     if (argc == 2 && std::string(argv[1]) == "info") {
         std::printf("optimized=%d\n", Optimized() ? 1 : 0);
+#ifdef KV_VERBOSE
+        std::printf("verbose=1\n");
+#else
+        std::printf("verbose=0\n");
+#endif
         return 0;
     }
     if (argc == 5 && std::string(argv[1]) == "bench") return Bench(argv[2], argv[3], std::atol(argv[4]));

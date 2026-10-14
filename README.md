@@ -79,6 +79,7 @@ programs with GCC/Clang flags and read Linux memory counters, so they need Linux
 | option | default | meaning |
 |---|---|---|
 | `KV_THREAD_SAFE` | `OFF` | Compiles the string pool with locks, so several threads can load different trees at the same time. A tree itself is still not safe to modify from several threads. |
+| `KV_VERBOSE` | `OFF` | Detailed logging to `stderr` (`[kv] ...` lines: file, encoding, roots, conditions, sizes, time). Off by default: the library prints errors only. |
 | `KV_SANITIZE` | `OFF` | AddressSanitizer + UBSan (GCC/Clang). |
 | `KV_TSAN` | `OFF` | ThreadSanitizer (GCC/Clang). Cannot be combined with `KV_SANITIZE`. |
 

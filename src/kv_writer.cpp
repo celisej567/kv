@@ -5,6 +5,7 @@
 
 #include "keyvalue.h"
 #include "keyvalue_internal.h"
+#include "kv_log.h"
 
 namespace
 {
@@ -216,8 +217,12 @@ bool CKeyValue::WriteToFile(const char* path) const
     std::unique_ptr<FILE, int (*)(FILE*)> file(std::fopen(path, "wb"), &std::fclose);
 
     if (!file)
+    {
+        std::fprintf(stderr, "%s: cannot create file\n", path);
         return false;
+    }
 
+    KV_LOG("writing '%s' (escapes %s)\n", path, UsesEscapeSequences() ? "on" : "off");
     bool ok = false;
 
     try
@@ -233,13 +238,23 @@ bool CKeyValue::WriteToFile(const char* path) const
     {
         file.reset();
         std::remove(path);  // not a half-written file
+        KV_LOG("write of '%s' threw: the partial file is removed\n", path);
         throw;
     }
 
+#ifdef KV_VERBOSE
+    const long bytes = std::ftell(file.get());
+#endif
     ok = (std::fclose(file.release()) == 0) && ok;
 
     if (!ok)
+    {
         std::remove(path);  // a failed write leaves no file, not a truncated one
+        std::fprintf(stderr, "%s: write error\n", path);
+        KV_LOG("write of '%s' failed: the partial file is removed\n", path);
+    }
+    else
+        KV_LOG("wrote '%s': %ld bytes\n", path, bytes);
 
     return ok;
 }

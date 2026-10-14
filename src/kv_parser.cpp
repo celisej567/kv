@@ -1,4 +1,5 @@
 #include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <memory>
@@ -9,6 +10,7 @@
 
 #include "keyvalue.h"
 #include "keyvalue_internal.h"
+#include "kv_log.h"
 
 namespace
 {
@@ -281,6 +283,7 @@ public:
 
         if (len_ >= 3 && std::memcmp(buf_.data(), "\xEF\xBB\xBF", 3) == 0)
         {
+            KV_LOG("UTF-8 BOM skipped\n");
             pos_ = 3;
             lastNewlineAbs_ = 2;
         }
@@ -323,7 +326,10 @@ public:
             bool accepted = true;
 
             if (anonymous)
+            {
+                KV_LOG("root without a name: named after the path '%s'\n", path);
                 KVInternal::SetNameSlot(root, kvname::Intern(path));
+            }
             else
             {
                 if (take)
@@ -338,6 +344,7 @@ public:
                 }
             }
 
+            KV_LOG("root '%.*s': %s\n", static_cast<int>(text_.size()), text_.data(), take ? "loading" : "skipped (only braces are matched)");
             const uint32_t rootName = KVInternal::NameSlot(root);
 
             if (t == Tok::Error)
@@ -368,6 +375,9 @@ public:
             found = true;
         }
     }
+
+    // UTF-8 bytes read so far (after conversion)
+    size_t BytesRead() const { return base_ + len_; }
 
     void Report(const char* path) const
     {
@@ -452,6 +462,7 @@ private:
 
             if (enc_ != Enc::Utf8)
             {
+                KV_LOG("UTF-16 %s BOM: converting to UTF-8 while reading\n", enc_ == Enc::Utf16LE ? "LE" : "BE");
                 raw_.assign(reinterpret_cast<unsigned char*>(at) + 2, reinterpret_cast<unsigned char*>(at) + got);
                 rawLen_ = got - 2;
                 rawPos_ = 0;
@@ -900,7 +911,12 @@ private:
         return true;
     }
 
-    bool Eval() const { return CondEval(text_, conds_).Run(); }
+    bool Eval() const
+    {
+        const bool r = CondEval(text_, conds_).Run();
+        KV_LOG("condition '%.*s' -> %s\n", static_cast<int>(text_.size()), text_.data(), r ? "true" : "false");
+        return r;
+    }
 
     // Names are lower case: a name with capitals takes the slow folding path.
     uint32_t InternName(std::string_view name)
@@ -1123,6 +1139,9 @@ void CKeyValue::SetCondition(const char* name, bool value)
 bool CKeyValue::LoadFromFile(const char* path)
 {
     Clear();
+    KV_LOG("loading '%s' (%s, conditions %s, escapes %s)\n", path,
+           *GetName() ? (std::string("root '") + GetName() + "'").c_str() : "first root",
+           UsesConditionals() ? "on" : "off", UsesEscapeSequences() ? "on" : "off");
     // closed on every exit, also when the pool throws
     std::unique_ptr<FILE, int (*)(FILE*)> file(std::fopen(path, "rb"), &std::fclose);
     FILE* f = file.get();
@@ -1133,6 +1152,9 @@ bool CKeyValue::LoadFromFile(const char* path)
         return false;
     }
 
+#ifdef KV_VERBOSE
+    const auto started = std::chrono::steady_clock::now();
+#endif
     CKeyValue tmp(GetName());
     KVInternal::SetUseCond(tmp, UsesConditionals());
     KVInternal::SetUseEsc(tmp, UsesEscapeSequences());
@@ -1143,10 +1165,13 @@ bool CKeyValue::LoadFromFile(const char* path)
     if (!ok)
     {
         parser.Report(path);
+        KV_LOG("load of '%s' failed: the object is cleared\n", path);
         return false;
     }
 
     *this = std::move(tmp);
+    KV_LOG("loaded '%s': %zu bytes of text, root '%s', %.2f ms\n", path, parser.BytesRead(), GetName(),
+           std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
 
     return true;
 }
