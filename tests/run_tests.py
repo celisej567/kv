@@ -246,6 +246,51 @@ def encodings(cli, tmp):
     return f"{len(rows)} rows"
 
 
+def utf16_equivalence(cli, tmp):
+    """Every valid-UTF-8 case file, converted to UTF-16 (LE and BE, with BOM), must load exactly as the original:
+    same dump, same exit code, same error text and position (the converted text is the original UTF-8)."""
+    n = 0
+    for kv in sorted(CASES.glob("*.kv")):
+        data = kv.read_bytes()
+        if b"\0" in data or "utf" in kv.stem or "anon" in kv.stem or "bom" in kv.stem:
+            continue
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+        want = {c: run(cli, c, kv) for c in ("dump", "dumpall")}
+        for label, bom, codec in (("le", b"\xff\xfe", "utf-16-le"), ("be", b"\xfe\xff", "utf-16-be")):
+            f = Path(tmp) / kv.name
+            f.write_bytes(bom + text.encode(codec, "surrogatepass"))
+            for c in ("dump", "dumpall"):
+                rc, so, se = run(cli, c, f)
+                wrc, wso, wse = want[c]
+                check(f"{kv.stem}/{label}/{c}", (rc, so) == (wrc, wso) and se.replace(str(f), str(kv)) == wse,
+                      f"utf-8: {wrc} {wse!r}; utf-16: {rc} {se!r}")
+            n += 1
+    check("count", n >= 80, f"only {n} files were converted")
+    return f"{n // 2} files x 2 endianness"
+
+
+def utf16_boundaries(cli, tmp):
+    """Big UTF-16 files whose characters (also surrogate pairs) straddle every block boundary of the reader."""
+    body = []
+    for i in range(30000):
+        body.append(f'\t"k{i}" "значение 😀 {i} 日本語 𝄞"\n')
+    for pad in range(4):
+        text = '"Root"\n{\n' + "\t" + "p" * (pad + 1) + " 1\n" + "".join(body) + "}\n"
+        u8 = Path(tmp) / f"bnd{pad}.u8.kv"
+        u8.write_bytes(text.encode("utf-8"))
+        rc0, so0, _ = run(cli, "dump", u8)
+        check(f"pad{pad}", rc0 == 0 and len(so0) > 1_000_000, f"utf-8 load rc {rc0}")
+        for label, bom, codec in (("le", b"\xff\xfe", "utf-16-le"), ("be", b"\xfe\xff", "utf-16-be")):
+            f = Path(tmp) / f"bnd{pad}.{label}.kv"
+            f.write_bytes(bom + text.encode(codec))
+            rc, so, se = run(cli, "dump", f)
+            check(f"pad{pad}/{label}", rc == 0 and so == so0, f"rc {rc} {se[:200]!r}; dump equal: {so == so0}")
+    return f"{len(text) // 1024} KB x 4 alignments x 2 endianness"
+
+
 def dups_blocks(cli, tmp):
     """Repeated names that hold objects, and a repeated name mixing a value and an object."""
     kv = CASES / "dup_blocks.kv"
@@ -760,7 +805,7 @@ def main():
 
     tests = [(kv.stem, lambda c, t, kv=kv: test_case(c, kv, t))
              for kv in sorted(CASES.glob("*.kv"))]
-    tests += [(f.__name__, f) for f in (misc_missing_file, misc_no_args, misc_bad_command, misc_write_unwritable, fail_cleanup, write_large_values, misc_kvdef, misc_api, anonymous_root, encodings, dups_gameinfo, dups_blocks,
+    tests += [(f.__name__, f) for f in (misc_missing_file, misc_no_args, misc_bad_command, misc_write_unwritable, fail_cleanup, write_large_values, misc_kvdef, misc_api, anonymous_root, encodings, utf16_equivalence, utf16_boundaries, dups_gameinfo, dups_blocks,
                                          stream_boundaries, stream_long_tokens, stream_error_position,
                                          deep_branching, depth_limit)]
     tests += [("perf_wide", perf_dataset("wide", 100000)),

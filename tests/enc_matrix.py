@@ -5,7 +5,6 @@ The library works on bytes, so what matters is whether the bytes of an encoding 
 syntax characters. For every encoding and every sample (a quoted value, a bare value, a quoted value
 with escape sequences on) the result is one of
   ok    loads, the value comes back byte for byte, write -> load gives the same tree
-  NUL   rejected with "NUL byte in file" (UTF-16/32)
   BAD   loads (or fails) but not as the author meant: a trail byte of a multi-byte character
         equals a syntax character
 
@@ -30,9 +29,10 @@ ENCODINGS = [
     ("ASCII", "ascii", "plain text 123", "7-bit"),
     ("UTF-8", "utf-8", "Привет мир 日本語 çödé 😀", "Unicode, ASCII-compatible"),
     ("UTF-8 with BOM", "utf-8-sig", "Привет мир 日本語", "BOM is skipped"),
-    ("UTF-16 LE with BOM", "utf-16", "Привет", "wide"),
-    ("UTF-16 LE", "utf-16-le", "Привет", "wide"),
-    ("UTF-16 BE", "utf-16-be", "Привет", "wide"),
+    ("UTF-16 LE with BOM", "utf-16", "Привет мир 日本語 😀", "converted to UTF-8 on load"),
+    ("UTF-16 BE with BOM", "utf-16-be-bom", "Привет мир 日本語 😀", "converted to UTF-8 on load"),
+    ("UTF-16 LE", "utf-16-le", "Привет", "wide, no BOM"),
+    ("UTF-16 BE", "utf-16-be", "Привет", "wide, no BOM"),
     ("UTF-32 LE with BOM", "utf-32", "Привет", "wide"),
     ("UTF-32 BE", "utf-32-be", "Привет", "wide"),
     ("UTF-7", "utf-7", "Привет мир", "7-bit"),
@@ -73,6 +73,17 @@ def kv_unescape(b):
              .replace(b"\\\\", b"\\"))
 
 
+def encode(codec, text):
+    if codec == "utf-16-be-bom":
+        return b"\xfe\xff" + text.encode("utf-16-be")
+    return text.encode(codec)
+
+
+def value_codec(codec):
+    """The library hands text out as UTF-8; for UTF-16 with a BOM that is not the codec of the file."""
+    return "utf-8" if codec in ("utf-16", "utf-16-be-bom") else codec.replace("-sig", "")
+
+
 def run(cli, args, env_esc=False):
     env = {**os.environ, "KV_ESC": "1" if env_esc else "0"}
     p = subprocess.run([str(cli), *map(str, args)], capture_output=True, timeout=60, env=env)
@@ -80,27 +91,27 @@ def run(cli, args, env_esc=False):
 
 
 def attempt(cli, tmp, codec, text, style, esc):
-    """Loads one file; returns 'ok', 'NUL' or 'BAD'."""
+    """Loads one file; returns 'ok' or 'BAD'."""
     if style == "bare":
         text = text.replace(" ", "")
         src = f'"Root" {{\n\tkey {text}\n}}\n'
     else:
         src = f'"Root" {{\n\t"key" "{text}"\n}}\n'
     try:
-        data = src.encode(codec)
+        data = encode(codec, src)
     except UnicodeError:
         return "n/a"
     f = Path(tmp) / "enc.kv"
     f.write_bytes(data)
     rc, so, se = run(cli, ["dump", f], esc)
     if rc != 0:
-        return "NUL" if b"NUL byte in file" in se else "BAD"
+        return "BAD"
     head = b"root/key\tstring\t"
     if not so.startswith(head) or not so.endswith(b"\n"):
         return "BAD"
     try:
         # the value as the library hands it out, decoded the way the author encoded it
-        if kv_unescape(so[len(head):-1]).decode(codec.replace("-sig", "")) != text:
+        if kv_unescape(so[len(head):-1]).decode(value_codec(codec)) != text:
             return "BAD"
     except UnicodeError:
         return "BAD"
@@ -132,11 +143,12 @@ EXPECTED = {
     'ASCII': ('ok', 'ok', 'ok'),
     'UTF-8': ('ok', 'ok', 'ok'),
     'UTF-8 with BOM': ('ok', 'ok', 'ok'),
-    'UTF-16 LE with BOM': ('NUL', 'NUL', 'NUL'),
-    'UTF-16 LE': ('NUL', 'NUL', 'NUL'),
-    'UTF-16 BE': ('NUL', 'NUL', 'NUL'),
-    'UTF-32 LE with BOM': ('NUL', 'NUL', 'NUL'),
-    'UTF-32 BE': ('NUL', 'NUL', 'NUL'),
+    'UTF-16 LE with BOM': ('ok', 'ok', 'ok'),
+    'UTF-16 BE with BOM': ('ok', 'ok', 'ok'),
+    'UTF-16 LE': ('BAD', 'BAD', 'BAD'),
+    'UTF-16 BE': ('BAD', 'BAD', 'BAD'),
+    'UTF-32 LE with BOM': ('BAD', 'BAD', 'BAD'),
+    'UTF-32 BE': ('BAD', 'BAD', 'BAD'),
     'UTF-7': ('ok', 'ok', 'ok'),
     'Latin-1 (ISO 8859-1)': ('ok', 'ok', 'ok'),
     'Windows-1252': ('ok', 'ok', 'ok'),

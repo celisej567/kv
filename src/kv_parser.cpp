@@ -301,7 +301,7 @@ public:
 
             if (t == Tok::End)
             {
-                if (nulAbs_ >= 0)
+                if (cutAbs_ >= 0)
                     return Fail(tokPos_, "");
 
                 if (first)
@@ -409,11 +409,11 @@ private:
     {
         if (err_.empty())
         {
-            // the data was cut at a NUL byte: any failure at the cut is the NUL's
-            if (nulAbs_ >= 0 && eof_ && (ranOut || pos_ >= len_))
+            // the data was cut short: any failure at the cut is the cut's
+            if (cutAbs_ >= 0 && eof_ && (ranOut || pos_ >= len_))
             {
-                err_ = "NUL byte in file";
-                errPos_ = static_cast<size_t>(nulAbs_);
+                err_ = cutMsg_;
+                errPos_ = static_cast<size_t>(cutAbs_);
             }
             else
             {
@@ -425,28 +425,51 @@ private:
         return false;
     }
 
+    // Reads the next block of UTF-8 text into the window. A file that starts with a UTF-16 BOM is
+    // converted on the way; bad UTF-16 ends the data right there and is reported as the error.
     void Fill()
     {
         if (eof_)
             return;
 
-        if (len_ == buf_.size())
+        if (len_ == buf_.size() || (enc_ != Enc::Utf8 && buf_.size() - len_ < 4096))
             buf_.resize(buf_.size() * 2);
 
         char* at = buf_.data() + len_;
-        size_t got = std::fread(at, 1, buf_.size() - len_, f_);
+        const size_t cap = buf_.size() - len_;
+        size_t got;
 
-        // A NUL byte is an error: the data ends right before it
-        if (const void* nul = std::memchr(at, 0, got))
+        if (!started_)
         {
-            got = static_cast<size_t>(static_cast<const char*>(nul) - at);
-            nulAbs_ = static_cast<long long>(base_ + len_ + got);
-            eof_ = true;
-            len_ += got;
-            return;
+            started_ = true;
+            got = std::fread(at, 1, cap, f_);
+
+            //(NOTE): On Windows writing a file with raw wchar_t wofstream wont mark a file with BOM. GOOD LUCK FOR THEM HAHA!
+            if (got >= 2 && static_cast<unsigned char>(at[0]) == 0xFF && static_cast<unsigned char>(at[1]) == 0xFE)
+                enc_ = Enc::Utf16LE;
+            else if (got >= 2 && static_cast<unsigned char>(at[0]) == 0xFE && static_cast<unsigned char>(at[1]) == 0xFF)
+                enc_ = Enc::Utf16BE;
+
+            if (enc_ != Enc::Utf8)
+            {
+                raw_.assign(reinterpret_cast<unsigned char*>(at) + 2, reinterpret_cast<unsigned char*>(at) + got);
+                rawLen_ = got - 2;
+                rawPos_ = 0;
+                got = Decode(at, cap);
+            }
         }
+        else if (enc_ == Enc::Utf8)
+            got = std::fread(at, 1, cap, f_);
+        else
+            got = Decode(at, cap);
 
         len_ += got;
+
+        if (cutAbs_ >= 0)
+        {
+            eof_ = true;
+            return;
+        }
 
         if (got == 0)
         {
@@ -454,6 +477,107 @@ private:
 
             if (std::ferror(f_))
                 ioError_ = true;
+        }
+    }
+
+    // The data ends `out` bytes into the free space of the window, for the reason `msg`
+    void Cut(size_t out, const char* msg)
+    {
+        if (cutAbs_ < 0)
+        {
+            cutAbs_ = static_cast<long long>(base_ + len_ + out);
+            cutMsg_ = msg;
+        }
+    }
+
+    // UTF-16 in raw_ -> UTF-8 at `at` (room for `cap` bytes, at least 4). Returns the bytes written;
+    // 0 means the end of the file or a cut.
+    size_t Decode(char* at, size_t cap)
+    {
+        constexpr size_t kRawChunk = 64 * 1024;
+        const bool le = enc_ == Enc::Utf16LE;
+        size_t out = 0;
+
+        for (;;)
+        {
+            size_t avail = rawLen_ - rawPos_;
+            const unsigned char* p = raw_.data() + rawPos_;
+
+            while (avail >= 2 && cap - out >= 4)
+            {
+                uint32_t u = le ? (p[0] | (p[1] << 8)) : ((p[0] << 8) | p[1]);
+                size_t used = 2;
+
+                if (u - 0xD800u < 0x400u)
+                {
+                    if (avail < 4)
+                        break;
+
+                    const uint32_t v = le ? (p[2] | (p[3] << 8)) : ((p[2] << 8) | p[3]);
+
+                    if (v - 0xDC00u >= 0x400u)
+                    {
+                        Cut(out, "invalid UTF-16: high surrogate without a low one");
+                        return out;
+                    }
+
+                    u = 0x10000u + ((u - 0xD800u) << 10) + (v - 0xDC00u);
+                    used = 4;
+                }
+                else if (u - 0xDC00u < 0x400u)
+                {
+                    Cut(out, "invalid UTF-16: low surrogate without a high one");
+                    return out;
+                }
+
+                char* o = at + out;
+
+                if (u < 0x80)
+                    *o++ = static_cast<char>(u);
+                else if (u < 0x800)
+                {
+                    *o++ = static_cast<char>(0xC0 | (u >> 6));
+                    *o++ = static_cast<char>(0x80 | (u & 0x3F));
+                }
+                else if (u < 0x10000)
+                {
+                    *o++ = static_cast<char>(0xE0 | (u >> 12));
+                    *o++ = static_cast<char>(0x80 | ((u >> 6) & 0x3F));
+                    *o++ = static_cast<char>(0x80 | (u & 0x3F));
+                }
+                else
+                {
+                    *o++ = static_cast<char>(0xF0 | (u >> 18));
+                    *o++ = static_cast<char>(0x80 | ((u >> 12) & 0x3F));
+                    *o++ = static_cast<char>(0x80 | ((u >> 6) & 0x3F));
+                    *o++ = static_cast<char>(0x80 | (u & 0x3F));
+                }
+
+                out = static_cast<size_t>(o - at);
+                p += used;
+                avail -= used;
+                rawPos_ += used;
+            }
+
+            if (out > 0 || cap - out < 4)
+                return out;
+
+            // Out of raw bytes (or only the start of a character is left): read more
+            if (avail > 0)
+                std::memmove(raw_.data(), raw_.data() + rawPos_, avail);
+
+            raw_.resize(avail + kRawChunk);
+            const size_t n = std::fread(raw_.data() + avail, 1, kRawChunk, f_);
+            rawLen_ = avail + n;
+            rawPos_ = 0;
+
+            if (n == 0)
+            {
+                if (avail > 0 && !std::ferror(f_))
+                    Cut(0, "invalid UTF-16: the file ends inside a character");
+
+                return 0;
+            }
         }
     }
 
@@ -947,7 +1071,15 @@ private:
     size_t base_ = 0;
     bool eof_ = false;
     bool ioError_ = false;
-    long long nulAbs_ = -1;  // absolute offset of the first NUL byte, -1 if none
+    // The data was cut short (bad UTF-16): where in the converted text, and why. -1 = not cut.
+    long long cutAbs_ = -1;
+    const char* cutMsg_ = nullptr;
+    enum class Enc { Utf8, Utf16LE, Utf16BE };
+    Enc enc_ = Enc::Utf8;
+    bool started_ = false;
+    std::vector<unsigned char> raw_;  // UTF-16 bytes read but not converted yet
+    size_t rawPos_ = 0;
+    size_t rawLen_ = 0;
     bool inComment_ = false;
     bool inBlock_ = false;
 

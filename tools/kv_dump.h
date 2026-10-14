@@ -24,6 +24,7 @@ inline std::string KvEscape(std::string_view s) {
             case '\n': o += "\\n"; break;
             case '\t': o += "\\t"; break;
             case '\r': o += "\\r"; break;
+            case '\0': o += "\\0"; break;
             default: o += c;
         }
     }

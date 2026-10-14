@@ -443,7 +443,7 @@ A file may contain several root objects one after another: `"A" { ... } "B" { ..
 | block not closed | `unexpected end of file, missing '}'` |
 | condition where it is not allowed | `unexpected conditional` |
 | nesting deeper than 512 | `nesting too deep` |
-| a NUL byte anywhere in the file | `NUL byte in file` (reported at the byte; the text is never cut silently) |
+| invalid UTF-16 in a file with a UTF-16 BOM | `invalid UTF-16: high surrogate without a low one` / `low surrogate without a high one` / `the file ends inside a character` (at the bad character) |
 | before the root: empty file / not a name (`{` is allowed only as the first root of an unnamed object) / no `{` | `empty file` / `expected root name` / `expected '{' after root name` |
 
 Duplicate keys and keys that differ only in case are kept as separate entries, in order.
@@ -464,18 +464,20 @@ The library works on **bytes**. It does not decode, validate or convert any text
 | invalid UTF-8 (stray `FF`, overlong forms, surrogates) | **not checked**: stored and written back as they are. The library never rejects a file for bad UTF-8 |
 | other 8-bit encodings (Latin-1, cp1251, ...) | work as opaque bytes, but the library does not know what they mean; case folding of names does not apply to them |
 | legacy multi-byte encodings (Shift_JIS, GBK, Big5) | only safe in a quoted value without escape sequences: a trail byte can equal `{`, `}` or `\`. EUC-JP and EUC-KR are safe. See the measured table below |
-| UTF-16, UTF-32 (with or without BOM) | **not supported**: such a file contains NUL bytes and fails with `NUL byte in file`. Convert it to UTF-8 first |
-| NUL byte anywhere | always an error (`NUL byte in file`, reported at the byte), also inside quotes and comments |
+| UTF-16 LE / BE **with a BOM** (`FF FE` / `FE FF`) | **converted to UTF-8 while the file is read** (streaming, no second copy of the file). Every Unicode character, including surrogate pairs, comes out as the same UTF-8 the file would hold; nothing is lost. A lone or misplaced surrogate, or a file that ends inside a character, is an error (`invalid UTF-16: ...`) instead of being replaced silently. See the note on positions below |
+| UTF-16 **without a BOM**, UTF-32 (any) | **not supported**: such a file contains NUL bytes and is read as UTF-8 text full of NUL bytes and fails with a syntax error (`expected '{' after root name`). (A UTF-32 LE BOM `FF FE 00 00` is read as the UTF-16 BOM followed by U+0000, so it fails the same way.) Convert it to UTF-8 first |
+| NUL byte | **not checked**: it is an ordinary byte. Inside quotes or an unquoted token it is stored and written back unchanged; in a comment it is skipped. Accessors that return `const char*` (`GetName`) stop at it, so a name or value with a NUL looks shortened to them |
 | other control characters (`01`..`1F`, `7F`) | allowed inside quoted values and stored; outside quotes `09 0A 0B 0C 0D 20` are whitespace and the rest are part of a token |
 | U+00A0 (no-break space) and other Unicode spaces | **not** whitespace: they are part of the token |
 
 * **Case.** Names are lower-cased for ASCII `A-Z` only, and matching is case-insensitive only for ASCII. `Ä`, `Ж` and
   the like are compared byte for byte, so `"Корень"` and `"корень"` are different names. Values keep their case.
-* **Line and column** in error messages count **bytes**, not characters. Line ends are `\n` and `\r\n`; a lone `\r`
+* **Line and column** in error messages count **bytes of the UTF-8 text**, not characters and not bytes of the file:
+  for a UTF-16 file they refer to the converted text, so the columns do not match the editor's. Line ends are `\n` and `\r\n`; a lone `\r`
   is whitespace, not a line end (a `//` comment then runs on to the next `\n`).
 * **Writing** produces the same bytes it holds: no BOM, no re-encoding, `\n` line ends.
-* **Strings in the API** are `const char*` (zero-terminated), so a NUL cannot be passed to `Set*`/`Add*`.
-  `std::string` results (`GetString`) are returned in full.
+* **Strings in the API** are `const char*` (zero-terminated), so a NUL cannot be passed to `Set*`/`Add*`; a NUL can only
+  get into the tree from a file.
 * **File names** are passed to `fopen` as given. On Windows that is the ANSI code page, not UTF-8; a path with
   characters outside it needs the caller to convert it or to use a short path.
 
@@ -487,18 +489,19 @@ written in), and write -> load gives the same tree. It runs as the test `encodin
 there. Three variants: a quoted value, an unquoted value, and a quoted value with `UsesEscapeSequences(true)`.
 Multi-byte encodings also get a second row with characters whose bytes equal a syntax character.
 
-`ok` = works. `NUL` = rejected with `NUL byte in file`. `BAD` = the file loads or fails, but not as the author meant.
+`ok` = works. `BAD` = the file fails to load, or loads but not as the author meant.
 
 | encoding | note | quoted value | unquoted value | quoted, escapes on |
 |---|---|---|---|---|
 | ASCII | 7-bit | ok | ok | ok |
 | UTF-8 | Unicode, ASCII-compatible | ok | ok | ok |
 | UTF-8 with BOM | BOM is skipped | ok | ok | ok |
-| UTF-16 LE with BOM | wide | NUL | NUL | NUL |
-| UTF-16 LE | wide | NUL | NUL | NUL |
-| UTF-16 BE | wide | NUL | NUL | NUL |
-| UTF-32 LE with BOM | wide | NUL | NUL | NUL |
-| UTF-32 BE | wide | NUL | NUL | NUL |
+| UTF-16 LE with BOM | converted to UTF-8 on load | ok | ok | ok |
+| UTF-16 BE with BOM | converted to UTF-8 on load | ok | ok | ok |
+| UTF-16 LE | wide, no BOM | BAD | BAD | BAD |
+| UTF-16 BE | wide, no BOM | BAD | BAD | BAD |
+| UTF-32 LE with BOM | wide | BAD | BAD | BAD |
+| UTF-32 BE | wide | BAD | BAD | BAD |
 | UTF-7 | 7-bit | ok | ok | ok |
 | Latin-1 (ISO 8859-1) | 8-bit | ok | ok | ok |
 | Windows-1252 | 8-bit | ok | ok | ok |
@@ -515,11 +518,14 @@ Multi-byte encodings also get a second row with characters whose bytes equal a s
 | Big5, chars with a syntax byte | sample '\xa3[\xa3\\\xa3]\xa2{\xa2}\xc7[' | ok | BAD | ok |
 | EUC-KR | multi-byte, all bytes 80..FF | ok | ok | ok |
 
+The cost of the UTF-16 conversion is measured in [bench/utf16/](../bench/utf16/README.md): UTF-8 loading is not measurably slower than before (0.96-1.02x),
+UTF-16 files load in about 1.3-1.5 times the time of the same text in UTF-8.
+
 How to read it:
 
 * **Single-byte encodings and UTF-8, EUC-JP, EUC-KR: all `ok`.** Every byte of a multi-byte character is `>= 80`, so
   no byte can be taken for `"`, `{`, `}`, `[`, `/` or `\`. UTF-7 only uses ASCII bytes and happens to work too.
-* **UTF-16 and UTF-32: `NUL`** in every variant.
+* **UTF-16 with a BOM: `ok`** (converted to UTF-8). **UTF-16 without a BOM and UTF-32: `BAD`** in every variant (the file is full of NUL bytes and does not parse).
 * **Shift_JIS, GBK and Big5 are only safe in a quoted value without escape sequences.** The second byte of a
   character can be in the ASCII range (`40`..`7E`), so it can equal a syntax byte. Examples measured:
   Shift_JIS `本` is `96 7B`, and `7B` is `{`: unquoted, the token ends in the middle of the character (`'{' without key`).
@@ -643,5 +649,5 @@ How to read it:
 18. Only the chosen root of a multi-root file is stored; the others are just checked for balanced braces.
 19. `#include` / `#base` are not handled.
 20. Pool limits (1024 chunks, 4 GB per string) throw `std::length_error`, also out of `LoadFromFile`.
-21. Only UTF-8 and ASCII text is meant to be used; UTF-16/32 files are rejected (they contain NUL bytes) and
-    invalid UTF-8 is passed through unchecked. Non-ASCII letters are not case-folded.
+21. UTF-8 and ASCII are the native text; UTF-16 with a BOM is converted to UTF-8 on load. UTF-16 without a BOM and
+    UTF-32 do not parse (NUL bytes) and invalid UTF-8 is passed through unchecked. Non-ASCII letters are not case-folded.
