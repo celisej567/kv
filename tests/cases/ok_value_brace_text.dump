@@ -1,0 +1,5 @@
+r/a	string	{
+r/b	string	}
+r/c	string	[$X]
+r/d	string	//x
+r/e	string	/*y*/

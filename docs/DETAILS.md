@@ -412,6 +412,9 @@ A file may contain several root objects one after another: `"A" { ... } "B" { ..
 * Once an unnamed object has taken a name, a later `LoadFromFile` into it looks for **that** name.
 * A root whose name is empty (`"" { a 1 }`) is accepted. Loading it into an unnamed object leaves the object
   unnamed.
+* A **first** root without a name (the file starts with `{`) is taken by an unnamed object, which is named after
+  the path given to `LoadFromFile` (as given, lower-cased like every name). Such a root anywhere else, or when the
+  object is named, is `expected root name`.
 * If the chosen root has a false condition (and conditions are on), the object is empty but named.
 
 ### Tokens
@@ -440,13 +443,91 @@ A file may contain several root objects one after another: `"A" { ... } "B" { ..
 | block not closed | `unexpected end of file, missing '}'` |
 | condition where it is not allowed | `unexpected conditional` |
 | nesting deeper than 512 | `nesting too deep` |
-| before the root: empty file / not a name / no `{` | `empty file` / `expected root name` / `expected '{' after root name` |
+| a NUL byte anywhere in the file | `NUL byte in file` (reported at the byte; the text is never cut silently) |
+| before the root: empty file / not a name (`{` is allowed only as the first root of an unnamed object) / no `{` | `empty file` / `expected root name` / `expected '{' after root name` |
 
 Duplicate keys and keys that differ only in case are kept as separate entries, in order.
 `#include` and `#base` are **not** processed: inside a block they are ordinary keys; before the root they are an
 error.
 
 The error line/column point at the offending token (for end-of-file errors, at the end).
+
+### Text encoding
+
+The library works on **bytes**. It does not decode, validate or convert any text encoding.
+
+| input | behaviour |
+|---|---|
+| ASCII | fully supported |
+| UTF-8 (names, values, root names) | supported: the bytes are stored and written back unchanged. Characters are never split, because every syntax character (`"` `{` `}` `[` `]` `/` whitespace) is ASCII and cannot occur inside a multi-byte UTF-8 sequence |
+| UTF-8 BOM (`EF BB BF`) | skipped **at the very start of the file** only. A second BOM, or one in the middle, is part of the text and normally ends in a syntax error |
+| invalid UTF-8 (stray `FF`, overlong forms, surrogates) | **not checked**: stored and written back as they are. The library never rejects a file for bad UTF-8 |
+| other 8-bit encodings (Latin-1, cp1251, ...) | work as opaque bytes, but the library does not know what they mean; case folding of names does not apply to them |
+| legacy multi-byte encodings (Shift_JIS, GBK, Big5) | only safe in a quoted value without escape sequences: a trail byte can equal `{`, `}` or `\`. EUC-JP and EUC-KR are safe. See the measured table below |
+| UTF-16, UTF-32 (with or without BOM) | **not supported**: such a file contains NUL bytes and fails with `NUL byte in file`. Convert it to UTF-8 first |
+| NUL byte anywhere | always an error (`NUL byte in file`, reported at the byte), also inside quotes and comments |
+| other control characters (`01`..`1F`, `7F`) | allowed inside quoted values and stored; outside quotes `09 0A 0B 0C 0D 20` are whitespace and the rest are part of a token |
+| U+00A0 (no-break space) and other Unicode spaces | **not** whitespace: they are part of the token |
+
+* **Case.** Names are lower-cased for ASCII `A-Z` only, and matching is case-insensitive only for ASCII. `Ä`, `Ж` and
+  the like are compared byte for byte, so `"Корень"` and `"корень"` are different names. Values keep their case.
+* **Line and column** in error messages count **bytes**, not characters. Line ends are `\n` and `\r\n`; a lone `\r`
+  is whitespace, not a line end (a `//` comment then runs on to the next `\n`).
+* **Writing** produces the same bytes it holds: no BOM, no re-encoding, `\n` line ends.
+* **Strings in the API** are `const char*` (zero-terminated), so a NUL cannot be passed to `Set*`/`Add*`.
+  `std::string` results (`GetString`) are returned in full.
+* **File names** are passed to `fopen` as given. On Windows that is the ANSI code page, not UTF-8; a path with
+  characters outside it needs the caller to convert it or to use a short path.
+
+#### Measured with 20 encodings
+
+`tests/enc_matrix.py` writes the same file (`"Root" { "key" <sample> }`) in each encoding, loads it with `kv_cli`
+and checks three things: it loads, the value comes back **byte for byte** (decoded with the same codec it was
+written in), and write -> load gives the same tree. It runs as the test `encodings`; the result below is pinned
+there. Three variants: a quoted value, an unquoted value, and a quoted value with `UsesEscapeSequences(true)`.
+Multi-byte encodings also get a second row with characters whose bytes equal a syntax character.
+
+`ok` = works. `NUL` = rejected with `NUL byte in file`. `BAD` = the file loads or fails, but not as the author meant.
+
+| encoding | note | quoted value | unquoted value | quoted, escapes on |
+|---|---|---|---|---|
+| ASCII | 7-bit | ok | ok | ok |
+| UTF-8 | Unicode, ASCII-compatible | ok | ok | ok |
+| UTF-8 with BOM | BOM is skipped | ok | ok | ok |
+| UTF-16 LE with BOM | wide | NUL | NUL | NUL |
+| UTF-16 LE | wide | NUL | NUL | NUL |
+| UTF-16 BE | wide | NUL | NUL | NUL |
+| UTF-32 LE with BOM | wide | NUL | NUL | NUL |
+| UTF-32 BE | wide | NUL | NUL | NUL |
+| UTF-7 | 7-bit | ok | ok | ok |
+| Latin-1 (ISO 8859-1) | 8-bit | ok | ok | ok |
+| Windows-1252 | 8-bit | ok | ok | ok |
+| ISO 8859-2 | 8-bit | ok | ok | ok |
+| Windows-1251 | 8-bit | ok | ok | ok |
+| KOI8-R | 8-bit | ok | ok | ok |
+| CP866 | 8-bit | ok | ok | ok |
+| Shift_JIS | multi-byte, trail bytes 40..FC | ok | BAD | BAD |
+| Shift_JIS, chars with a syntax byte | sample '\x81}\x84[\x84\\\x84]\x84{\x84}' | ok | BAD | ok |
+| EUC-JP | multi-byte, all bytes 80..FF | ok | ok | ok |
+| GBK | multi-byte, trail bytes 40..FE | ok | ok | BAD |
+| GBK, chars with a syntax byte | sample '\xa9\\\xa8[\xa8\\\xa8]\xa8{\xa8}' | ok | BAD | ok |
+| Big5 | multi-byte, trail bytes 40..FE | ok | ok | BAD |
+| Big5, chars with a syntax byte | sample '\xa3[\xa3\\\xa3]\xa2{\xa2}\xc7[' | ok | BAD | ok |
+| EUC-KR | multi-byte, all bytes 80..FF | ok | ok | ok |
+
+How to read it:
+
+* **Single-byte encodings and UTF-8, EUC-JP, EUC-KR: all `ok`.** Every byte of a multi-byte character is `>= 80`, so
+  no byte can be taken for `"`, `{`, `}`, `[`, `/` or `\`. UTF-7 only uses ASCII bytes and happens to work too.
+* **UTF-16 and UTF-32: `NUL`** in every variant.
+* **Shift_JIS, GBK and Big5 are only safe in a quoted value without escape sequences.** The second byte of a
+  character can be in the ASCII range (`40`..`7E`), so it can equal a syntax byte. Examples measured:
+  Shift_JIS `本` is `96 7B`, and `7B` is `{`: unquoted, the token ends in the middle of the character (`'{' without key`).
+  Shift_JIS `ソ`, `表`, `能` and GBK/Big5 `功`, `乗` end in `5C`, the backslash: with escape sequences on, `\"` at the
+  end of the value is read as an escaped quote and the string is not closed, or the next character is swallowed.
+  The library does not know these encodings and does not skip trail bytes. If such files must be read, convert them
+  to UTF-8 first.
+* A quote (`22`) is never a trail byte in any of these encodings, so a quoted value without escape sequences is safe.
 
 ---
 
@@ -562,3 +643,5 @@ The error line/column point at the offending token (for end-of-file errors, at t
 18. Only the chosen root of a multi-root file is stored; the others are just checked for balanced braces.
 19. `#include` / `#base` are not handled.
 20. Pool limits (1024 chunks, 4 GB per string) throw `std::length_error`, also out of `LoadFromFile`.
+21. Only UTF-8 and ASCII text is meant to be used; UTF-16/32 files are rejected (they contain NUL bytes) and
+    invalid UTF-8 is passed through unchecked. Non-ASCII letters are not case-folded.

@@ -34,8 +34,9 @@ public:
     ~CKeyValue();
 
     // A file may hold several root objects. An unnamed object loads the first one and takes its
-    // name. A named one loads the first root with that name (case-insensitive); the other roots are
-    // only checked for matching braces. No such root -> "root "name" not found". On failure prints
+    // name; a first root without a name (the file starts with '{') is named after `path`. A named
+    // one loads the first root with that name (case-insensitive); the other roots are only checked
+    // for matching braces. No such root -> "root "name" not found". On failure prints
     // "file:line:col: message" to stderr, clears the contents (the name stays) and returns false.
     bool LoadFromFile(const char* path);
     // false: the file could not be created or written; a half-written file is removed.

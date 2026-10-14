@@ -275,7 +275,7 @@ public:
                 delete n.child;
     }
 
-    bool Parse(CKeyValue& root)
+    bool Parse(CKeyValue& root, const char* path)
     {
         Fill();
 
@@ -285,7 +285,8 @@ public:
             lastNewlineAbs_ = 2;
         }
 
-        // Named: find the root of that name; unnamed: take the first root and its name.
+        // Named: find the root of that name; unnamed: take the first root and its name. A first root
+        // without a name (a file starting with '{') is taken by an unnamed object and named `path`.
         const bool wanted = *root.GetName() != '\0';
         const uint32_t wantedSlot = KVInternal::NameSlot(root);
         bool found = false;
@@ -300,6 +301,9 @@ public:
 
             if (t == Tok::End)
             {
+                if (nulAbs_ >= 0)
+                    return Fail(tokPos_, "");
+
                 if (first)
                     return Fail(tokPos_, "empty file");
 
@@ -309,25 +313,32 @@ public:
                 return true;
             }
 
+            const bool anonymous = first && !wanted && t == Tok::LBrace;
             first = false;
 
-            if (t != Tok::Str && t != Tok::Bare)
+            if (!anonymous && t != Tok::Str && t != Tok::Bare)
                 return Fail(tokPos_, "expected root name");
 
-            const bool take = !found && (!wanted || kvname::Find(text_) == wantedSlot);
-
-            if (take)
-                KVInternal::SetNameSlot(root, kvname::Intern(text_));
-
-            const uint32_t rootName = KVInternal::NameSlot(root);
-            t = Next();
+            const bool take = anonymous || (!found && (!wanted || kvname::Find(text_) == wantedSlot));
             bool accepted = true;
 
-            if (t == Tok::Cond)
+            if (anonymous)
+                KVInternal::SetNameSlot(root, kvname::Intern(path));
+            else
             {
-                accepted = Eval();
+                if (take)
+                    KVInternal::SetNameSlot(root, kvname::Intern(text_));
+
                 t = Next();
+
+                if (t == Tok::Cond)
+                {
+                    accepted = Eval();
+                    t = Next();
+                }
             }
+
+            const uint32_t rootName = KVInternal::NameSlot(root);
 
             if (t == Tok::Error)
                 return false;
@@ -394,12 +405,21 @@ private:
         Error
     };
 
-    bool Fail(size_t localPos, const char* msg)
+    bool Fail(size_t localPos, const char* msg, bool ranOut = false)
     {
         if (err_.empty())
         {
-            err_ = msg;
-            errPos_ = base_ + localPos;
+            // the data was cut at a NUL byte: any failure at the cut is the NUL's
+            if (nulAbs_ >= 0 && eof_ && (ranOut || pos_ >= len_))
+            {
+                err_ = "NUL byte in file";
+                errPos_ = static_cast<size_t>(nulAbs_);
+            }
+            else
+            {
+                err_ = msg;
+                errPos_ = base_ + localPos;
+            }
         }
 
         return false;
@@ -413,7 +433,19 @@ private:
         if (len_ == buf_.size())
             buf_.resize(buf_.size() * 2);
 
-        const size_t got = std::fread(buf_.data() + len_, 1, buf_.size() - len_, f_);
+        char* at = buf_.data() + len_;
+        size_t got = std::fread(at, 1, buf_.size() - len_, f_);
+
+        // A NUL byte is an error: the data ends right before it
+        if (const void* nul = std::memchr(at, 0, got))
+        {
+            got = static_cast<size_t>(static_cast<const char*>(nul) - at);
+            nulAbs_ = static_cast<long long>(base_ + len_ + got);
+            eof_ = true;
+            len_ += got;
+            return;
+        }
+
         len_ += got;
 
         if (got == 0)
@@ -510,7 +542,7 @@ private:
                     return false;
                 }
 
-                Fail(pos_, "unterminated comment");
+                Fail(pos_, "unterminated comment", true);
                 out = Tok::Error;
                 return true;
             }
@@ -625,7 +657,7 @@ private:
                     return false;
                 }
 
-                Fail(tokPos_, "unterminated string");
+                Fail(tokPos_, "unterminated string", true);
                 out = Tok::Error;
                 return true;
             }
@@ -915,6 +947,7 @@ private:
     size_t base_ = 0;
     bool eof_ = false;
     bool ioError_ = false;
+    long long nulAbs_ = -1;  // absolute offset of the first NUL byte, -1 if none
     bool inComment_ = false;
     bool inBlock_ = false;
 
@@ -972,7 +1005,7 @@ bool CKeyValue::LoadFromFile(const char* path)
     KVInternal::SetUseCond(tmp, UsesConditionals());
     KVInternal::SetUseEsc(tmp, UsesEscapeSequences());
     Parser parser(f, UsesConditionals(), UsesEscapeSequences());
-    const bool ok = parser.Parse(tmp);
+    const bool ok = parser.Parse(tmp, path);
     file.reset();
 
     if (!ok)

@@ -1,0 +1,8 @@
+r/a	string	inf
+r/b	string	-inf
+r/c	string	nan
+r/d	string	NaN
+r/e	string	Infinity
+r/f	string	true
+r/g	string	false
+r/h	string	null

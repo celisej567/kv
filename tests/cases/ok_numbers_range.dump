@@ -1,0 +1,10 @@
+r/a	int	2147483647
+r/b	float	2147483648
+r/c	int	-2147483648
+r/d	float	-2147483649
+r/e	float	99999999999999999999
+r/f	string	1e999
+r/g	string	-1e999
+r/h	string	1e-999
+r/i	float	4294967295
+r/j	float	4294967296

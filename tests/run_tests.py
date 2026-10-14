@@ -223,6 +223,29 @@ def dups_gameinfo(cli, tmp):
     return "13 entries, 5 repeated names"
 
 
+def anonymous_root(cli, tmp):
+    """A file starting with '{': an unnamed object takes it and is named after the path given to Load."""
+    f = Path(tmp) / "Anon.kv"
+    f.write_text("{\n\ta 1\n}\n\"S\" { b 2 }\n", encoding="utf-8", newline="\n")
+    rc, so, _ = run(cli, "dump", f)
+    check("first", rc == 0 and so == str(f).lower() + "/a\tint\t1\n", f"got {so!r}")
+    f.write_text("\"R\" { b 2 }\n{ a 1 }\n", encoding="utf-8", newline="\n")
+    rc, so, se = run(cli, "dump", f)
+    check("not first", rc == 1 and "2:1: expected root name" in se, f"rc {rc} {se!r}")
+    return "ok"
+
+
+def encodings(cli, tmp):
+    """The same file in 20 text encodings (and, for multi-byte ones, with characters whose bytes equal syntax characters)."""
+    import enc_matrix
+    rows = enc_matrix.matrix(cli)
+    got = {r[0]: tuple(r[2:]) for r in rows}
+    check("rows", set(got) == set(enc_matrix.EXPECTED), f"rows {sorted(set(got) ^ set(enc_matrix.EXPECTED))}")
+    for label, want in enc_matrix.EXPECTED.items():
+        check(label, got.get(label) == want, f"got {got.get(label)}, expected {want}")
+    return f"{len(rows)} rows"
+
+
 def dups_blocks(cli, tmp):
     """Repeated names that hold objects, and a repeated name mixing a value and an object."""
     kv = CASES / "dup_blocks.kv"
@@ -737,7 +760,7 @@ def main():
 
     tests = [(kv.stem, lambda c, t, kv=kv: test_case(c, kv, t))
              for kv in sorted(CASES.glob("*.kv"))]
-    tests += [(f.__name__, f) for f in (misc_missing_file, misc_no_args, misc_bad_command, misc_write_unwritable, fail_cleanup, write_large_values, misc_kvdef, misc_api, dups_gameinfo, dups_blocks,
+    tests += [(f.__name__, f) for f in (misc_missing_file, misc_no_args, misc_bad_command, misc_write_unwritable, fail_cleanup, write_large_values, misc_kvdef, misc_api, anonymous_root, encodings, dups_gameinfo, dups_blocks,
                                          stream_boundaries, stream_long_tokens, stream_error_position,
                                          deep_branching, depth_limit)]
     tests += [("perf_wide", perf_dataset("wide", 100000)),
