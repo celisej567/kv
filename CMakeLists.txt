@@ -12,6 +12,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(KV_THREAD_SAFE "Guard the global string pool with a mutex" OFF)
 option(KV_VERBOSE "Log what a load and a write do to stderr (errors are always printed)" OFF)
+option(KV_BUILD_SHARED "Build the kv library as a shared library (default: static)" OFF)
+option(KV_BUILD_TOOLS "Build kv_cli, the stress/bench tools, the example and the tests (OFF: the library only)" ON)
 option(KV_SANITIZE "Build with AddressSanitizer + UBSan (GCC/Clang)" OFF)
 option(KV_TSAN "Build with ThreadSanitizer (GCC/Clang, exclusive with KV_SANITIZE)" OFF)
 
@@ -21,23 +23,31 @@ set(KV_SOURCES
     src/kv_parser.cpp
     src/kv_writer.cpp)
 
-add_library(kv STATIC ${KV_SOURCES})
+if(KV_BUILD_SHARED)
+    add_library(kv SHARED ${KV_SOURCES})
+    set_target_properties(kv PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)  # every public symbol, no export macros
+else()
+    add_library(kv STATIC ${KV_SOURCES})
+endif()
 target_include_directories(kv PUBLIC src)
 
-# Same code with the pool mutex always on; used by the multithreading tests.
-add_library(kv_mt STATIC ${KV_SOURCES})
-target_include_directories(kv_mt PUBLIC src)
-target_compile_definitions(kv_mt PUBLIC KV_THREAD_SAFE)
-
 find_package(Threads REQUIRED)
-target_link_libraries(kv_mt PUBLIC Threads::Threads)
-
 if(KV_THREAD_SAFE)
     target_compile_definitions(kv PUBLIC KV_THREAD_SAFE)
     target_link_libraries(kv PUBLIC Threads::Threads)
 endif()
 
-foreach(lib kv kv_mt)
+set(KV_LIBS kv)
+if(KV_BUILD_TOOLS)
+    # Same code with the pool mutex always on; used by the multithreading tests.
+    add_library(kv_mt STATIC ${KV_SOURCES})
+    target_include_directories(kv_mt PUBLIC src)
+    target_compile_definitions(kv_mt PUBLIC KV_THREAD_SAFE)
+    target_link_libraries(kv_mt PUBLIC Threads::Threads)
+    list(APPEND KV_LIBS kv_mt)
+endif()
+
+foreach(lib ${KV_LIBS})
     if(KV_VERBOSE)
         target_compile_definitions(${lib} PRIVATE KV_VERBOSE)
     endif()
@@ -54,6 +64,10 @@ foreach(lib kv kv_mt)
         endif()
     endif()
 endforeach()
+
+if(NOT KV_BUILD_TOOLS)
+    return()
+endif()
 
 add_executable(kv_cli tools/kv_cli.cpp)
 target_link_libraries(kv_cli PRIVATE kv)

@@ -74,12 +74,31 @@ from any directory and any location of the repository (they use only temporary d
 `python tests/run_tests.py <path to kv_cli>` (`python3` on Linux and macOS). The benchmark scripts in `bench/` build
 programs with GCC/Clang flags and read Linux memory counters, so they need Linux (`CXX` selects the compiler).
 
+### Presets
+
+`CMakePresets.json` (CMake 3.21+); each preset builds in `build/<preset>`:
+
+| preset | what it builds |
+|---|---|
+| `lib-static` | the library only, static (`libkv.a`) |
+| `lib-shared` | the library only, shared (`libkv.so` / `kv.dll`) |
+| `release`, `debug` | everything, with tests |
+| `verbose` | everything, with `KV_VERBOSE` |
+| `asan`, `tsan` | everything, with AddressSanitizer + UBSan / ThreadSanitizer |
+
+```
+cmake --preset lib-shared && cmake --build --preset lib-shared
+cmake --preset release && cmake --build --preset release -j && ctest --preset release
+```
+
 ### CMake options
 
 | option | default | meaning |
 |---|---|---|
 | `KV_THREAD_SAFE` | `OFF` | Compiles the string pool with locks, so several threads can load different trees at the same time. A tree itself is still not safe to modify from several threads. |
 | `KV_VERBOSE` | `OFF` | Detailed logging to `stderr` (`[kv] ...` lines: file, encoding, roots, conditions, sizes, time). Off by default: the library prints errors only. |
+| `KV_BUILD_SHARED` | `OFF` | Builds `kv` as a shared library (`libkv.so` / `kv.dll`) instead of a static one. |
+| `KV_BUILD_TOOLS` | `ON` | Builds `kv_cli`, the stress/bench tools, the example and the tests. `OFF` builds the library only. |
 | `KV_SANITIZE` | `OFF` | AddressSanitizer + UBSan (GCC/Clang). |
 | `KV_TSAN` | `OFF` | ThreadSanitizer (GCC/Clang). Cannot be combined with `KV_SANITIZE`. |
 

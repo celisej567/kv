@@ -1,0 +1,69 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "lib-static",
+      "displayName": "Library only, static",
+      "inherits": "base",
+      "cacheVariables": { "KV_BUILD_TOOLS": "OFF", "KV_BUILD_SHARED": "OFF" }
+    },
+    {
+      "name": "lib-shared",
+      "displayName": "Library only, shared",
+      "inherits": "base",
+      "cacheVariables": { "KV_BUILD_TOOLS": "OFF", "KV_BUILD_SHARED": "ON" }
+    },
+    {
+      "name": "release",
+      "displayName": "Everything + tests, Release",
+      "inherits": "base"
+    },
+    {
+      "name": "debug",
+      "displayName": "Everything + tests, Debug",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "verbose",
+      "displayName": "Everything + tests, detailed logging",
+      "inherits": "base",
+      "cacheVariables": { "KV_VERBOSE": "ON" }
+    },
+    {
+      "name": "asan",
+      "displayName": "Everything + tests, ASan + UBSan",
+      "inherits": "base",
+      "cacheVariables": { "KV_SANITIZE": "ON", "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+    },
+    {
+      "name": "tsan",
+      "displayName": "Everything + tests, ThreadSanitizer",
+      "inherits": "base",
+      "cacheVariables": { "KV_TSAN": "ON", "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "lib-static", "configurePreset": "lib-static" },
+    { "name": "lib-shared", "configurePreset": "lib-shared" },
+    { "name": "release", "configurePreset": "release" },
+    { "name": "debug", "configurePreset": "debug" },
+    { "name": "verbose", "configurePreset": "verbose" },
+    { "name": "asan", "configurePreset": "asan" },
+    { "name": "tsan", "configurePreset": "tsan" }
+  ],
+  "testPresets": [
+    { "name": "release", "configurePreset": "release", "output": { "outputOnFailure": true } },
+    { "name": "debug", "configurePreset": "debug", "output": { "outputOnFailure": true } },
+    { "name": "verbose", "configurePreset": "verbose", "output": { "outputOnFailure": true } },
+    { "name": "asan", "configurePreset": "asan", "output": { "outputOnFailure": true } },
+    { "name": "tsan", "configurePreset": "tsan", "output": { "outputOnFailure": true } }
+  ]
+}
