@@ -119,7 +119,7 @@ def attempt(cli, tmp, codec, text, style, esc):
     rc, _, _ = run(cli, ["write", f, w], esc)
     if rc != 0:
         return "BAD"
-    rc, so2, _ = run(cli, ["dump", w], esc)
+    rc, so2, _ = run(cli, ["dump", w], True)  # a written file is always escaped
     return "ok" if rc == 0 and so2 == so else "BAD"
 
 

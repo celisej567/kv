@@ -9,12 +9,22 @@
 
 namespace
 {
+// Text is always written escaped (\" \\ \n \t \r), whatever UsesEscapeSequences says.
+bool NeedsEscape(std::string_view s)
+{
+    for (const char c : s)
+        if (c == '"' || c == '\\' || c == '\n' || c == '\t' || c == '\r')
+            return true;
+
+    return false;
+}
+
 // Block-written output buffer; appends are plain memcpy.
 class Out
 {
 public:
     // `f` is the file to write to; with a null `f` the output goes to `*str`.
-    Out(FILE* f, std::string* str, bool esc) : f_(f), str_(str), esc_(esc), d_(new char[kBlock + kSlack]), cap_(kBlock + kSlack) {}
+    Out(FILE* f, std::string* str) : f_(f), str_(str), d_(new char[kBlock + kSlack]), cap_(kBlock + kSlack) {}
 
     // Room for `n` more bytes; returns where they go. The caller then calls Commit.
     char* Room(size_t n)
@@ -44,7 +54,7 @@ public:
 
     void Quoted(std::string_view s)
     {
-        if (!esc_)
+        if (!NeedsEscape(s))
         {
             char* p = Room(s.size() + 2);
             *p++ = '"';
@@ -91,7 +101,7 @@ public:
         Put('"');
     }
 
-    // A whole line with one room check; only without escape sequences.
+    // A whole line with one room check; only when nothing in it needs escaping.
     void Line(int level, std::string_view name, std::string_view value, bool quoteValue)
     {
         const size_t indent = static_cast<size_t>(level);
@@ -120,8 +130,6 @@ public:
         if (size_ >= kBlock)
             Flush();
     }
-
-    bool escapes() const { return esc_; }
 
     void EndLine()
     {
@@ -163,7 +171,6 @@ private:
 
     FILE* f_;
     std::string* str_;
-    bool esc_;
     std::unique_ptr<char[]> d_;
     size_t cap_;
     size_t size_ = 0;
@@ -182,11 +189,16 @@ void WriteObject(Out& out, const CKeyValue& kv, int level)
         if (KVInternal::Skipped(kv, n))
             continue;
 
-        if (n.type != CKeyValue::KeyValue && !out.escapes())
+        if (n.type != CKeyValue::KeyValue)
         {
             char num[KVInternal::kNumberText];
-            out.Line(level + 1, pool.View(n.nameSlot), KVInternal::Text(n, num), n.type == CKeyValue::String);
-            continue;
+            const std::string_view name = pool.View(n.nameSlot), text = KVInternal::Text(n, num);
+
+            if (!NeedsEscape(name) && !(n.type == CKeyValue::String && NeedsEscape(text)))
+            {
+                out.Line(level + 1, name, text, n.type == CKeyValue::String);
+                continue;
+            }
         }
 
         out.Indent(level + 1);
@@ -229,12 +241,12 @@ bool CKeyValue::WriteToFile(const char* path) const
         return false;
     }
 
-    KV_LOG("writing '%s' (escapes %s)\n", path, UsesEscapeSequences() ? "on" : "off");
+    KV_LOG("writing '%s'\n", path);
     bool ok = false;
 
     try
     {
-        Out out(file.get(), nullptr, UsesEscapeSequences());
+        Out out(file.get(), nullptr);
         out.Quoted(KVStringPool::Instance().View(nameSlot_));
         out.EndLine();
         WriteObject(out, *this, 0);
@@ -269,7 +281,7 @@ bool CKeyValue::WriteToFile(const char* path) const
 std::string CKeyValue::WriteToBuffer() const
 {
     std::string text;
-    Out out(nullptr, &text, UsesEscapeSequences());
+    Out out(nullptr, &text);
     out.Quoted(KVStringPool::Instance().View(nameSlot_));
     out.EndLine();
     WriteObject(out, *this, 0);

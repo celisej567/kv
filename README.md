@@ -26,7 +26,7 @@ design and with differences in behaviour (see [Differences from Source](#differe
 - Conditions: `"key" "value" [$LINUX]`, `[!$X360]`, `[$A && ($B || !$C)]`, also after a block name or the
   root name. The table of names is extensible with `CKeyValue::SetCondition`. Entries with a false
   condition are loaded and kept, and hidden by default; `UsesConditionals(false)` shows them.
-- Optional backslash escapes in quoted text with `UsesEscapeSequences(true)` (off by default).
+- Backslash escapes (`\"` `\\` `\n` `\t` `\r`) in quoted text are read with `UsesEscapeSequences(true)` (off by default); files are always written escaped.
 - One global pool of unique strings: every distinct name or value is stored once, and the tree holds only
   slot numbers and types. The pool is optionally thread-safe (`KV_THREAD_SAFE`).
 - Streaming parser (a 256 KB sliding window), so peak memory is the tree and not tree plus file. Errors are

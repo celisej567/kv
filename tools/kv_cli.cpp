@@ -536,15 +536,23 @@ static int Api() {
         ok = ok && off.GetString("a") == "x\\ny" && on.GetString("a") == "x\ny";
         ok = ok && off.GetKeyValue("sub")->GetString("b") == "p\\\\q" && !off.GetKeyValue("sub")->UsesEscapeSequences();
         ok = ok && on.UsesEscapeSequences() && on.GetKeyValue("sub")->UsesEscapeSequences();
-        // writing: on escapes (a value with a newline survives the round trip), off writes the text as it is
+        // writing escapes always, whatever the flag says (a value with a quote or a newline survives the round trip)
         on.SetString("q", "he said \"hi\"\n");
         CKeyValue back("R");
         back.UsesEscapeSequences(true);
         ok = ok && on.WriteToFile(out.c_str()) && back.LoadFromFile(out.c_str()) && back.GetString("q") == "he said \"hi\"\n";
         off.SetString("path", "C:\\dir\\");
         CKeyValue back2("R");
+        back2.UsesEscapeSequences(true);
         ok = ok && off.WriteToFile(out.c_str()) && back2.LoadFromFile(out.c_str()) && back2.GetString("path") == "C:\\dir\\" &&
              back2.GetString("a") == "x\\ny";
+        // the written text is the same with the flag off and on
+        CKeyValue w1("R"), w2("R");
+        w2.UsesEscapeSequences(true);
+        w1.SetString("var_string", "Hi im \"Henry\".\nHow are you?");
+        w2.SetString("var_string", "Hi im \"Henry\".\nHow are you?");
+        ok = ok && w1.WriteToBuffer() == w2.WriteToBuffer() &&
+             w1.WriteToBuffer() == "\"r\"\n{\n\t\"var_string\"\t\"Hi im \\\"Henry\\\".\\nHow are you?\"\n}\n";
         // copies and adopted children take the flag of the parent
         CKeyValue parent("P");
         parent.UsesEscapeSequences(true);

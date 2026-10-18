@@ -372,10 +372,12 @@ Example (file: `a 1 [$X360]`, `a 2 [$LINUX]`, `b 5 [$X360]`, `c [$X360] { d 1 }`
 `UsesEscapeSequences(bool)`, **false by default**.
 
 * **Off (default):** a quoted string ends at the next `"`. A backslash is an ordinary character. A quote cannot be
-  inside a value, and `"C:\dir\"` is the text `C:\dir\`. When **writing**, text is written as it is, in quotes,
-  with no escaping: a value containing `"` or a newline produces a file that does not read back as the same value.
+  inside a value, and `"C:\dir\"` is the text `C:\dir\`.
 * **On:** inside quotes `\"` `\\` `\n` `\t` `\r` are converted; any other `\x` is kept as the two characters.
-  When **writing**, `"`, `\`, newline, tab and carriage return are escaped, so a value round-trips.
+* **Writing ignores the flag:** `WriteToFile` / `WriteToBuffer` always escape `"`, `\`, newline, tab and carriage return
+  in names and quoted values, so `SetString("v", "Hi \"Henry\".\nBye")` is always written as `"v"	"Hi \"Henry\".\nBye"`.
+  The file is therefore always valid, but it reads back as the same text only with `UsesEscapeSequences(true)`; read
+  with the flag off, a value written with a quote is cut at it, and every `\` comes back doubled.
 * It only concerns **quoted** tokens. Unquoted tokens are never unescaped.
 * Set it **before** `LoadFromFile` (it decides how the file is read). It propagates to the subtree, is copied
   by `SetKeyValue`/`AddKeyValue` (the parent's setting wins) and survives `Clear()` and loading.
@@ -549,7 +551,7 @@ Detailed logging is a compile-time switch: build with `-DKV_VERBOSE` (CMake: `-D
     [kv] condition '[$LINUX && $POSIX]' -> true
     [kv] loaded 'a.kv': 149 bytes of text, root 'root', 0.15 ms
     [kv] load of 'a.kv' failed: the object is cleared
-    [kv] writing 'b.kv' (escapes off) / wrote 'b.kv': 94 bytes / write of 'b.kv' failed: the partial file is removed
+    [kv] writing 'b.kv' / wrote 'b.kv': 94 bytes / write of 'b.kv' failed: the partial file is removed
 
 The error lines keep their own form without the prefix, so a log line can be told from an error by it.
 
@@ -657,7 +659,7 @@ The error lines keep their own form without the prefix, so a log line can be tol
 9. Hidden entries are invisible to everything, including `Set*`; `Set*` on a name that only exists hidden appends
    a visible entry next to it.
 10. Conditions are evaluated at load time and never written back.
-11. Without `UsesEscapeSequences(true)` a `"` or a newline in a value is written raw and does not round-trip.
+11. A written file is always escaped; read it with `UsesEscapeSequences(true)` to get the same text back.
 12. `SetKeyValue`/`AddKeyValue` copy the object, rename the copy to the key and give it the parent's flags;
     you keep ownership of your original, and the one in the tree is a different object.
 13. `GetKeyValue(name, def)` returns a **new** copy of `def` when the key is missing; the caller must delete it.

@@ -122,7 +122,9 @@ def test_case_inner(cli, kv, tmp):
     if out.exists():
         check(name, first == out.read_bytes(), f"written mismatch:\n--- got\n{first.decode()}--- want\n{out.read_bytes().decode()}")
 
-    # round trip: same tree, byte-identical second write
+    # round trip: same tree, byte-identical second write. A written file is always escaped, so it is read with escapes on.
+    global ESC
+    ESC = "1"
     rc, so2, _ = run(cli, "dump", written)
     check(name, rc == 0 and so2 == so, "dump of written file differs from the original")
     written2 = Path(tmp) / (name + ".written2")

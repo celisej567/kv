@@ -55,8 +55,8 @@ public:
     void UsesConditionals(bool state);
     bool UsesConditionals() const { return useCond_; }
 
-    // Backslash escapes in quoted text. false by default: a string ends at the next quote, so a
-    // quote inside a value cannot be written. Set before LoadFromFile; applies to the whole subtree.
+    // Backslash escapes when reading quoted text. false by default: a string ends at the next quote.
+    // Set before LoadFromFile; applies to the whole subtree. Writing always escapes, whatever this says.
     void UsesEscapeSequences(bool state);
     bool UsesEscapeSequences() const { return useEsc_; }
 
