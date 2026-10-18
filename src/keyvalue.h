@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // Assisted and commented using Claude. (sry too lazy to do them myself).
@@ -39,6 +40,10 @@ public:
     // for matching braces. No such root -> "root "name" not found". On failure prints
     // "file:line:col: message" to stderr, clears the contents (the name stays) and returns false.
     bool LoadFromFile(const char* path);
+    // Like LoadFromFile, but parses `text` (a std::string converts implicitly). `label` stands for the
+    // path in error messages ("label:line:col: message") and names a first root that has no name.
+    // UTF-8 BOM and UTF-16 with BOM are handled as in a file.
+    bool LoadFromBuffer(std::string_view text, const char* label = "<buffer>");
     // false: the file could not be created or written; a half-written file is removed.
     bool WriteToFile(const char* path) const;
     // The same text WriteToFile would write, returned as a string (it may hold NUL bytes). Throws

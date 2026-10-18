@@ -388,6 +388,11 @@ Example (file: `a 1 [$X360]`, `a 2 [$LINUX]`, `b 5 [$X360]`, `c [$X360] { d 1 }`
 
 `bool LoadFromFile(const char* path)`
 
+`bool LoadFromBuffer(std::string_view text, const char* label = "<buffer>")` does the same for text in memory (a
+`std::string` converts implicitly): same steps, same errors, same BOM handling (UTF-8, UTF-16 with BOM). `label` stands
+for the path in error messages (`label:line:col: message`) and names a first root that has no name. The object is
+cleared first and left empty on failure, as with a file. `text` is only read during the call.
+
 ### Steps and what comes out
 
 1. The object is **cleared first** (`Clear()`), so on any failure it is empty. Its **name and flags stay**.

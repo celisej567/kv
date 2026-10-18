@@ -117,10 +117,10 @@ percent, for example `nested` load 153.4 vs 153.2 ms; lookups in big objects by 
 
 | file | file size | heap Source | heap P2CE | heap ours | RSS Source | RSS P2CE | RSS ours | peak RSS Source | peak RSS P2CE | peak RSS ours |
 |---|---|---|---|---|---|---|---|---|---|---|
-| wide | 2.8 MB | 10.7 MB (3.77x) | 10.9 MB (3.83x) | 8.9 MB (3.13x) | 12.8 MB | 16.9 MB | 8.4 MB | 15.4 MB | 16.9 MB | 10.2 MB |
-| nested | 10.8 MB | 41.6 MB (3.86x) | 38.1 MB (3.53x) | 16.4 MB (1.52x) | 43.7 MB | 40.8 MB | 16.2 MB | 54.1 MB | 53.1 MB | 16.9 MB |
-| unique | 7.9 MB | 22.4 MB (2.82x) | 22.8 MB (2.87x) | 27.4 MB (3.45x) | 26.6 MB | 27.4 MB | 23.3 MB | 34.0 MB | 35.4 MB | 24.5 MB |
-| nested_big | 86.7 MB | 337.8 MB (3.90x) | 304.7 MB (3.51x) | 131.8 MB (1.52x) | 336.2 MB | 317.7 MB | 130.1 MB | 422.1 MB | 405.6 MB | 137.9 MB |
+| wide | 2.8 MB | 10.7 MB (3.77x) | 10.9 MB (3.83x) | 8.9 MB (3.13x) | 12.8 MB | 16.9 MB | 8.4 MB | 15.1 MB | 16.9 MB | 10.1 MB |
+| nested | 10.8 MB | 41.6 MB (3.86x) | 38.1 MB (3.53x) | 16.4 MB (1.52x) | 43.7 MB | 40.7 MB | 16.2 MB | 54.5 MB | 53.2 MB | 17.0 MB |
+| unique | 7.9 MB | 22.4 MB (2.82x) | 22.8 MB (2.87x) | 27.4 MB (3.45x) | 26.7 MB | 27.4 MB | 23.1 MB | 34.3 MB | 35.7 MB | 24.6 MB |
+| nested_big | 86.7 MB | 337.8 MB (3.90x) | 304.7 MB (3.51x) | 131.8 MB (1.52x) | 336.2 MB | 317.7 MB | 128.4 MB | 422.3 MB | 405.8 MB | 136.5 MB |
 
 #### Lookups
 
@@ -135,11 +135,11 @@ Source's default key-name table (4 MB) overflowed on: nested_big; its numbers fo
 
 | threads | Source | ours (thread-safe build) | ours vs Source |
 |---|---|---|---|
-| 1 | 62 MB/s | 306 MB/s | 4.9x |
-| 2 | 64 MB/s | 561 MB/s | 8.7x |
-| 4 | 65 MB/s | 908 MB/s | 13.9x |
-| 8 | 65 MB/s | 893 MB/s | 13.7x |
-| 16 | 65 MB/s | 932 MB/s | 14.4x |
+| 1 | 61 MB/s | 274 MB/s | 4.5x |
+| 2 | 61 MB/s | 539 MB/s | 8.8x |
+| 4 | 61 MB/s | 832 MB/s | 13.6x |
+| 8 | 61 MB/s | 880 MB/s | 14.4x |
+| 16 | 59 MB/s | 925 MB/s | 15.6x |
 
 ### Noise in the `wide` lookup
 
@@ -190,7 +190,7 @@ The P2CE columns are in the tables of the *Results* section above (Load, Destroy
   the time per megabyte grows with the number of distinct key names (P2CE: `nested` 10 ms/MB, `nested_big` 23 ms/MB);
   I did not investigate the cause. This library is 3.9x–12.9x faster than P2CE on load.
 * **Save.** P2CE is 1.2x–1.4x faster than Source; the output is byte-identical to Source's. This library is
-  3.0x–6.5x faster than P2CE and writes up to 12% fewer bytes.
+  2.2x–4.8x faster than P2CE and writes up to 12% fewer bytes.
 * **Memory.** On `nested` (repeated names and values) P2CE needs **8% less heap than Source** (3.5x the file size
   against 3.9x) and 2.3x more than this library (1.5x). With distinct strings (`unique`, `wide`) P2CE and Source are the
   same (2.9x / 3.8x); this library needs 22% more on `unique` and 17% less on `wide`. Peak RSS of P2CE is between 4% below and 9% above Source's.
@@ -251,11 +251,11 @@ own folder: [bench/source-kv/](../source-kv/README.md) holds the crate, the Rust
 
 ## Reading the numbers
 
-* **Load: 5.3x–13.0x faster.** On `nested` (typical data) 5.3x. The larger ratios on `wide` (12.5x) and `unique`
-  (13.0x) come from a Source design limit: its key-name table (`CKeyValuesSystem`) has a fixed number of
+* **Load: 5.0x–11.8x faster.** On `nested` (typical data) 5.0x. The larger ratios on `wide` (10.7x) and `unique`
+  (11.8x) come from a Source design limit: its key-name table (`CKeyValuesSystem`) has a fixed number of
   buckets with chains compared by `stricmp`, so with 100k+ distinct names every interning walks a long chain.
   Source also keeps the whole file in memory while parsing; ours streams.
-* **Save: 4.2x–7.6x faster.** Outputs are not byte-equal: Source quotes every value and rewrites numbers
+* **Save: 3.0x–5.4x faster.** Outputs are not byte-equal: Source quotes every value and rewrites numbers
   (`7.11` -> `"7.110000"`); ours keeps the number text as read, unquoted, so ours writes up to 12% fewer bytes. Source also puts two tabs between a key and its value, ours one. Both indent with tabs and write the same number of lines.
 * **Destroy: 1.9x–15x faster.**
 * **Lookups by name in a large object: about 1000–2000x.** Source's `FindKey` walks the sibling list (66 µs with
@@ -271,8 +271,8 @@ own folder: [bench/source-kv/](../source-kv/README.md) holds the crate, the Rust
   lower for ours on every file (up to 3x on `nested_big`), because Source holds the whole file in memory while parsing.
 * **Threads.** Source cannot load two files at once: `LoadFromBuffer` parses into a process-wide static token
   buffer, and unsynchronised runs with 4 threads crashed. The Source column therefore serialises parsing with a
-  mutex and stays at ~60 MB/s. Ours is thread-safe and 4.8x–15.4x faster in total and **scales up to 8 threads**
-  (299 MB/s on one thread, 1011 MB/s on eight, 829 on 16 threads of the 8 cores): the parser keeps a small cache of
+  mutex and stays at ~60 MB/s. Ours is thread-safe and 4.5x–15.6x faster in total and **scales up to 8 threads**
+  (274 MB/s on one thread, 880 MB/s on eight, 925 on 16 threads of the 8 cores): the parser keeps a small cache of
   recently seen strings in front of the pool, so repeated names and values never touch the shared pool or its lock;
   only strings seen for the first time take it.
 

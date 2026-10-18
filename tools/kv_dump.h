@@ -2,6 +2,8 @@
 // Text dump of a tree shared by kv_cli and kv_stress, so single- and multi-threaded runs can be
 // compared byte for byte. One line per node: "path<TAB>type<TAB>value" (value empty for "kv").
 #include <cstdlib>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <string_view>
 
@@ -9,9 +11,17 @@
 #include "keyvalue_internal.h"
 
 // Tools read the file with escape sequences on when the environment has KV_ESC=1 (the default is off).
+// With KV_BUF=1 the file is read into a string first and parsed by LoadFromBuffer (labelled with the path).
 inline bool KvLoad(CKeyValue& kv, const char* path) {
     const char* e = std::getenv("KV_ESC");
     if (e && e[0] == '1') kv.UsesEscapeSequences(true);
+    const char* b = std::getenv("KV_BUF");
+    if (b && b[0] == '1') {
+        std::ifstream in(path, std::ios::binary);
+        if (!in) return kv.LoadFromFile(path);  // prints the usual "cannot open file"
+        const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        return kv.LoadFromBuffer(text, path);
+    }
     return kv.LoadFromFile(path);
 }
 

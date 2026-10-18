@@ -339,6 +339,20 @@ def write_buffer(cli, tmp):
     return f"{n} files"
 
 
+def load_buffer(cli, tmp):
+    """LoadFromBuffer gives the same tree, the same exit code and the same error text as LoadFromFile, for every case."""
+    cases = sorted(CASES.glob("*.kv"))
+    for kv in cases:
+        for cmd in ("dump", "dumpall"):
+            for esc in ("0", "1"):
+                env = {**os.environ, "KV_ESC": esc}
+                a = subprocess.run([cli, cmd, kv], capture_output=True, env=env, timeout=120)
+                b = subprocess.run([cli, cmd, kv], capture_output=True, env={**env, "KV_BUF": "1"}, timeout=120)
+                check(f"{kv.stem} {cmd} esc={esc}", (a.returncode, a.stdout, a.stderr) == (b.returncode, b.stdout, b.stderr),
+                      f"file: {a.returncode} {a.stderr[:200]!r}; buffer: {b.returncode} {b.stderr[:200]!r}")
+    return f"{len(cases)} files"
+
+
 def misc_write_unwritable(cli, tmp):
     rc, _, se = run(cli, "write", CASES / "good.kv", Path(tmp) / "no_such_dir" / "x.kv")
     check("write-unwritable", rc == 1, f"exit {rc}, expected 1")
@@ -851,7 +865,7 @@ def main():
 
     tests = [(kv.stem, lambda c, t, kv=kv: test_case(c, kv, t))
              for kv in sorted(CASES.glob("*.kv"))]
-    tests += [(f.__name__, f) for f in (misc_missing_file, misc_no_args, misc_bad_command, misc_write_unwritable, write_buffer, logging, fail_cleanup, write_large_values, misc_kvdef, misc_api, anonymous_root, encodings, utf16_equivalence, utf16_boundaries, dups_gameinfo, dups_blocks,
+    tests += [(f.__name__, f) for f in (misc_missing_file, misc_no_args, misc_bad_command, misc_write_unwritable, write_buffer, load_buffer, logging, fail_cleanup, write_large_values, misc_kvdef, misc_api, anonymous_root, encodings, utf16_equivalence, utf16_boundaries, dups_gameinfo, dups_blocks,
                                          stream_boundaries, stream_long_tokens, stream_error_position,
                                          deep_branching, depth_limit)]
     tests += [("perf_wide", perf_dataset("wide", 100000)),

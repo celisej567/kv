@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <cstdio>
@@ -266,8 +267,9 @@ private:
 class Parser
 {
 public:
-    Parser(FILE* f, bool useCond, bool useEsc)
-        : f_(f), buf_(kInitialWindow), conds_(SnapshotConditions()), useCond_(useCond), useEsc_(useEsc) {}
+    // Reads from a file, or (f == nullptr) from `mem`.
+    Parser(FILE* f, std::string_view mem, bool useCond, bool useEsc)
+        : f_(f), mem_(mem), buf_(kInitialWindow), conds_(SnapshotConditions()), useCond_(useCond), useEsc_(useEsc) {}
 
     // children still staged after an exception are owned here
     ~Parser()
@@ -435,6 +437,22 @@ private:
         return false;
     }
 
+    size_t ReadBytes(void* dst, size_t n)
+    {
+        if (f_)
+            return std::fread(dst, 1, n, f_);
+
+        n = std::min(n, mem_.size() - memPos_);
+
+        if (n > 0)
+            std::memcpy(dst, mem_.data() + memPos_, n);
+
+        memPos_ += n;
+        return n;
+    }
+
+    bool ReadFailed() const { return f_ && std::ferror(f_); }
+
     // Reads the next block of UTF-8 text into the window. A file that starts with a UTF-16 BOM is
     // converted on the way; bad UTF-16 ends the data right there and is reported as the error.
     void Fill()
@@ -452,7 +470,7 @@ private:
         if (!started_)
         {
             started_ = true;
-            got = std::fread(at, 1, cap, f_);
+            got = ReadBytes(at, cap);
 
             //(NOTE): On Windows writing a file with raw wchar_t wofstream wont mark a file with BOM. GOOD LUCK FOR THEM HAHA!
             if (got >= 2 && static_cast<unsigned char>(at[0]) == 0xFF && static_cast<unsigned char>(at[1]) == 0xFE)
@@ -470,7 +488,7 @@ private:
             }
         }
         else if (enc_ == Enc::Utf8)
-            got = std::fread(at, 1, cap, f_);
+            got = ReadBytes(at, cap);
         else
             got = Decode(at, cap);
 
@@ -486,7 +504,7 @@ private:
         {
             eof_ = true;
 
-            if (std::ferror(f_))
+            if (ReadFailed())
                 ioError_ = true;
         }
     }
@@ -578,13 +596,13 @@ private:
                 std::memmove(raw_.data(), raw_.data() + rawPos_, avail);
 
             raw_.resize(avail + kRawChunk);
-            const size_t n = std::fread(raw_.data() + avail, 1, kRawChunk, f_);
+            const size_t n = ReadBytes(raw_.data() + avail, kRawChunk);
             rawLen_ = avail + n;
             rawPos_ = 0;
 
             if (n == 0)
             {
-                if (avail > 0 && !std::ferror(f_))
+                if (avail > 0 && !ReadFailed())
                     Cut(0, "invalid UTF-16: the file ends inside a character");
 
                 return 0;
@@ -1079,6 +1097,8 @@ private:
     }
 
     FILE* f_;
+    std::string_view mem_;
+    size_t memPos_ = 0;
     std::vector<char> buf_;
     size_t len_ = 0;
     size_t pos_ = 0;
@@ -1136,6 +1156,35 @@ void CKeyValue::SetCondition(const char* name, bool value)
     t.push_back({n, value});
 }
 
+namespace
+{
+// Parses into a copy and replaces `self` only on success. `f` null: the text is `mem`.
+bool LoadFrom(CKeyValue& self, FILE* f, std::string_view mem, const char* label)
+{
+#ifdef KV_VERBOSE
+    const auto started = std::chrono::steady_clock::now();
+#endif
+    CKeyValue tmp(self.GetName());
+    KVInternal::SetUseCond(tmp, self.UsesConditionals());
+    KVInternal::SetUseEsc(tmp, self.UsesEscapeSequences());
+    Parser parser(f, mem, self.UsesConditionals(), self.UsesEscapeSequences());
+    const bool ok = parser.Parse(tmp, label);
+
+    if (!ok)
+    {
+        parser.Report(label);
+        KV_LOG("load of '%s' failed: the object is cleared\n", label);
+        return false;
+    }
+
+    self = std::move(tmp);
+    KV_LOG("loaded '%s': %zu bytes of text, root '%s', %.2f ms\n", label, parser.BytesRead(), self.GetName(),
+           std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+
+    return true;
+}
+}  // namespace
+
 bool CKeyValue::LoadFromFile(const char* path)
 {
     Clear();
@@ -1144,34 +1193,19 @@ bool CKeyValue::LoadFromFile(const char* path)
            UsesConditionals() ? "on" : "off", UsesEscapeSequences() ? "on" : "off");
     // closed on every exit, also when the pool throws
     std::unique_ptr<FILE, int (*)(FILE*)> file(std::fopen(path, "rb"), &std::fclose);
-    FILE* f = file.get();
 
-    if (!f)
+    if (!file)
     {
         std::fprintf(stderr, "%s:1:1: cannot open file\n", path);
         return false;
     }
 
-#ifdef KV_VERBOSE
-    const auto started = std::chrono::steady_clock::now();
-#endif
-    CKeyValue tmp(GetName());
-    KVInternal::SetUseCond(tmp, UsesConditionals());
-    KVInternal::SetUseEsc(tmp, UsesEscapeSequences());
-    Parser parser(f, UsesConditionals(), UsesEscapeSequences());
-    const bool ok = parser.Parse(tmp, path);
-    file.reset();
+    return LoadFrom(*this, file.get(), {}, path);
+}
 
-    if (!ok)
-    {
-        parser.Report(path);
-        KV_LOG("load of '%s' failed: the object is cleared\n", path);
-        return false;
-    }
-
-    *this = std::move(tmp);
-    KV_LOG("loaded '%s': %zu bytes of text, root '%s', %.2f ms\n", path, parser.BytesRead(), GetName(),
-           std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
-
-    return true;
+bool CKeyValue::LoadFromBuffer(std::string_view text, const char* label)
+{
+    Clear();
+    KV_LOG("loading '%s' from memory (%zu bytes)\n", label, text.size());
+    return LoadFrom(*this, nullptr, text, label);
 }
