@@ -41,6 +41,9 @@ public:
     bool LoadFromFile(const char* path);
     // false: the file could not be created or written; a half-written file is removed.
     bool WriteToFile(const char* path) const;
+    // The same text WriteToFile would write, returned as a string (it may hold NUL bytes). Throws
+    // std::bad_alloc if memory runs out.
+    std::string WriteToBuffer() const;
 
     // Conditions: `"key" "value" [$LINUX]`, `"key" [!$A && ($B || $C)] { ... }`. Unset names are
     // false. True by default: WINDOWS and WIN32 on Windows; LINUX and POSIX on Linux; OSX and POSIX

@@ -13,7 +13,8 @@ namespace
 class Out
 {
 public:
-    Out(FILE* f, bool esc) : f_(f), esc_(esc), d_(new char[kBlock + kSlack]), cap_(kBlock + kSlack) {}
+    // `f` is the file to write to; with a null `f` the output goes to `*str`.
+    Out(FILE* f, std::string* str, bool esc) : f_(f), str_(str), esc_(esc), d_(new char[kBlock + kSlack]), cap_(kBlock + kSlack) {}
 
     // Room for `n` more bytes; returns where they go. The caller then calls Commit.
     char* Room(size_t n)
@@ -133,7 +134,12 @@ public:
     void Flush()
     {
         if (size_ && ok_)
-            ok_ = std::fwrite(d_.get(), 1, size_, f_) == size_;
+        {
+            if (f_)
+                ok_ = std::fwrite(d_.get(), 1, size_, f_) == size_;
+            else
+                str_->append(d_.get(), size_);
+        }
 
         size_ = 0;
     }
@@ -156,6 +162,7 @@ private:
     }
 
     FILE* f_;
+    std::string* str_;
     bool esc_;
     std::unique_ptr<char[]> d_;
     size_t cap_;
@@ -227,7 +234,7 @@ bool CKeyValue::WriteToFile(const char* path) const
 
     try
     {
-        Out out(file.get(), UsesEscapeSequences());
+        Out out(file.get(), nullptr, UsesEscapeSequences());
         out.Quoted(KVStringPool::Instance().View(nameSlot_));
         out.EndLine();
         WriteObject(out, *this, 0);
@@ -257,4 +264,15 @@ bool CKeyValue::WriteToFile(const char* path) const
         KV_LOG("wrote '%s': %ld bytes\n", path, bytes);
 
     return ok;
+}
+
+std::string CKeyValue::WriteToBuffer() const
+{
+    std::string text;
+    Out out(nullptr, &text, UsesEscapeSequences());
+    out.Quoted(KVStringPool::Instance().View(nameSlot_));
+    out.EndLine();
+    WriteObject(out, *this, 0);
+    out.Flush();
+    return text;
 }

@@ -561,6 +561,8 @@ The error lines keep their own form without the prefix, so a log line can be tol
 
 * Returns `false` if the file cannot be created or a write fails. A write that fails after the file was created
   (disk full, ...) **removes the half-written file**; the file handle is always closed, also when an allocation throws.
+* `std::string WriteToBuffer() const` returns the same text as a string instead of writing a file (same format, same
+  escape setting; nothing is printed and no file is touched). It throws `std::bad_alloc` if memory runs out.
 * Format: the object's name in quotes on a line, then the block. Everything is indented with **one tab per level** and a key is separated from its value by **one tab**,
   braces on their own lines:
 

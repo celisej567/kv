@@ -713,6 +713,14 @@ int main(int argc, char** argv) {
         if (!KvLoad(kv, argv[2])) return 1;
         return kv.WriteToFile(argv[3]) ? 0 : 1;
     }
+    if (cmd == "writebuf" && argc == 4) {  // like write, through WriteToBuffer
+        if (!KvLoad(kv, argv[2])) return 1;
+        const std::string text = kv.WriteToBuffer();
+        FILE* f = std::fopen(argv[3], "wb");
+        if (!f) return 1;
+        const bool ok = std::fwrite(text.data(), 1, text.size(), f) == text.size();
+        return (std::fclose(f) == 0 && ok) ? 0 : 1;
+    }
     if (cmd == "list" && (argc == 4 || argc == 5)) {
         if (!KvLoad(kv, argv[2])) return 1;
         const std::string path = argv[3];
