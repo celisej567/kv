@@ -79,7 +79,7 @@ empty string, so the pool exists before any tree does and is destroyed after eve
 * Limits: a string must be shorter than 4 GB, there can be at most 2^32 - 2 strings, and at most **1024 chunks**
   (a 4 MB chunk is the biggest regular one; every string over 1 MB takes a chunk of its own, so about a thousand
   such strings are the most). Past a limit `Intern` throws `std::length_error`. A load that hits it throws out of
-  `LoadFromFile` (it does not return `false`).
+  `LoadFromFile` / `LoadFromBuffer` (it does not return `false`).
 * Slot numbers are only meaningful inside one process. Nothing stores them in files.
 
 ### Thread safety (build option `KV_THREAD_SAFE`)
@@ -136,7 +136,7 @@ The name is lower-cased: `CKeyValue("MyRoot").GetName()` is `"myroot"`.
 ### Flags
 
 `UsesConditionals(bool)` and `UsesEscapeSequences(bool)` apply to the **whole subtree** below the object and
-survive `Clear()` and `LoadFromFile`. Details in sections 7 and 8. When an object is stored with
+survive `Clear()` and loading. Details in sections 7 and 8. When an object is stored with
 `SetKeyValue`/`AddKeyValue`, the **copy takes the parent's flags**; the original is not changed.
 
 ### `Clear()`
@@ -280,9 +280,10 @@ Consequences worth knowing:
 
 * `RemoveKey(name)`: removes the first **visible** entry with that name; returns `true` if one was removed.
 * `RemoveKeys(name)`: removes every **visible** entry with that name; returns how many.
+* Removing shifts the later entries and rebuilds the object's name index in place: O(entries) time, no allocation
+  when the object has an index (more than 16 keys); the index keeps its capacity afterwards.
 * Hidden entries are not touched while `UsesConditionals` is true (with false they count as ordinary entries).
 * Removed blocks are deleted: pointers to them dangle. Pointers to *other* blocks stay valid.
-* Removal rebuilds the duplicate chains and the index: it is O(number of entries of that object), not O(1).
 * It invalidates every `Children()` range/iterator/`Child` on that object (the positions shift).
 
 ---
@@ -346,7 +347,7 @@ An entry with a false condition is loaded and **kept**, marked hidden. While `Us
 
 * `Get*`, `GetKeyValue`, `Children`, `Count`, `GetStrings`, `GetKeyValues`, `RemoveKey(s)` and `Set*` behave as if
   the entry were not there;
-* `WriteToFile` does not write it;
+* the writer (`WriteToFile` / `WriteToBuffer`) does not write it;
 * a name that exists only as a hidden entry is "missing" for the getters.
 
 With `UsesConditionals(false)` everything is visible: the hidden entries take part in all of the above, and
@@ -391,14 +392,15 @@ Example (file: `a 1 [$X360]`, `a 2 [$LINUX]`, `b 5 [$X360]`, `c [$X360] { d 1 }`
 `bool LoadFromBuffer(std::string_view text, const char* label = "<buffer>")` does the same for text in memory (a
 `std::string` converts implicitly): same steps, same errors, same BOM handling (UTF-8, UTF-16 with BOM). `label` stands
 for the path in error messages (`label:line:col: message`) and names a first root that has no name. The object is
-cleared first and left empty on failure, as with a file. `text` is only read during the call.
+cleared first and left empty on failure, as with a file. `text` is only read during the call. UTF-8 text is
+parsed in place, without the window of step 3 and without a copy; UTF-16 text goes through the window like a file.
 
 ### Steps and what comes out
 
 1. The object is **cleared first** (`Clear()`), so on any failure it is empty. Its **name and flags stay**.
 2. If the file cannot be opened: prints `path:1:1: cannot open file` and returns `false`.
-3. The file is read through a sliding window (256 KB, grows for a longer token), so memory is the tree and not
-   tree plus file. A UTF-8 BOM at the start is skipped. `\r\n` is treated like `\n` (it is whitespace).
+3. The file is read through a sliding window (256 KB, not zero-filled, grows for a longer token), so memory is the
+   tree and not tree plus file. A UTF-8 BOM at the start is skipped. `\r\n` is treated like `\n` (it is whitespace).
 4. On a syntax error: prints `path:line:column: message` to `stderr`, returns `false`, leaves the object empty.
    No exceptions for malformed input. (Exceptions can still come from the pool limits, section 2, or
    `std::bad_alloc`.)
@@ -420,7 +422,7 @@ A file may contain several root objects one after another: `"A" { ... } "B" { ..
 * A root whose name is empty (`"" { a 1 }`) is accepted. Loading it into an unnamed object leaves the object
   unnamed.
 * A **first** root without a name (the file starts with `{`) is taken by an unnamed object, which is named after
-  the path given to `LoadFromFile` (as given, lower-cased like every name). Such a root anywhere else, or when the
+  the path given to `LoadFromFile` (as given, lower-cased like every name), or after the `label` of `LoadFromBuffer`. Such a root anywhere else, or when the
   object is named, is `expected root name`.
 * If the chosen root has a false condition (and conditions are on), the object is empty but named.
 
@@ -461,7 +463,8 @@ The error line/column point at the offending token (for end-of-file errors, at t
 
 ### Text encoding
 
-The library works on **bytes**. It does not decode, validate or convert any text encoding.
+The library works on **bytes**. It does not decode, validate or convert any text encoding, with one exception: a
+file (or buffer) that starts with a UTF-16 BOM is converted to UTF-8 while it is read.
 
 | input | behaviour |
 |---|---|
@@ -484,7 +487,7 @@ The library works on **bytes**. It does not decode, validate or convert any text
   is whitespace, not a line end (a `//` comment then runs on to the next `\n`).
 * **Writing** produces the same bytes it holds: no BOM, no re-encoding, `\n` line ends.
 * **Strings in the API** are `const char*` (zero-terminated), so a NUL cannot be passed to `Set*`/`Add*`; a NUL can only
-  get into the tree from a file.
+  get into the tree from a file or from `LoadFromBuffer`.
 * **File names** are passed to `fopen` as given. On Windows that is the ANSI code page, not UTF-8; a path with
   characters outside it needs the caller to convert it or to use a short path.
 
@@ -550,7 +553,7 @@ open file`), and `path: cannot create file` / `path: write error` for a failed w
 Detailed logging is a compile-time switch: build with `-DKV_VERBOSE` (CMake: `-DKV_VERBOSE=ON`). The code is in
 `src/kv_log.h`; with the define off, the log calls compile to nothing and cost nothing. Every line starts with `[kv] `:
 
-    [kv] loading 'a.kv' (first root, conditions on, escapes off)
+    [kv] loading 'a.kv' (first root, conditions on, escapes off)   (LoadFromBuffer: loading '<label>' from memory (N bytes))
     [kv] UTF-16 LE BOM: converting to UTF-8 while reading      (or: UTF-8 BOM skipped)
     [kv] root 'Root': loading                                    (or: skipped (only braces are matched))
     [kv] condition '[$LINUX && $POSIX]' -> true
@@ -568,8 +571,8 @@ The error lines keep their own form without the prefix, so a log line can be tol
 
 * Returns `false` if the file cannot be created or a write fails. A write that fails after the file was created
   (disk full, ...) **removes the half-written file**; the file handle is always closed, also when an allocation throws.
-* `std::string WriteToBuffer() const` returns the same text as a string instead of writing a file (same format, same
-  escape setting; nothing is printed and no file is touched). It throws `std::bad_alloc` if memory runs out.
+* `std::string WriteToBuffer() const` returns the same text as a string instead of writing a file (same format, also
+  always escaped; nothing is printed and no file is touched). It throws `std::bad_alloc` if memory runs out.
 * Format: the object's name in quotes on a line, then the block. Everything is indented with **one tab per level** and a key is separated from its value by **one tab**,
   braces on their own lines:
 
@@ -590,10 +593,12 @@ The error lines keep their own form without the prefix, so a log line can be tol
 * Order is preserved. Duplicate keys are written one after another.
 * Hidden entries are skipped while `UsesConditionals` is true; with false they are written without their
   condition (see section 7).
-* Escapes follow `UsesEscapeSequences` (section 8).
+* Names and quoted values are always escaped (`\"` `\\` `\n` `\t` `\r`), whatever `UsesEscapeSequences` says (section 8).
 * An unnamed object writes `""` as its name; that file loads into an unnamed object and stays unnamed.
-* The output is not byte-identical to the input (comments, quoting and layout are not kept), but loading it
-  gives the same tree, except for `SetFloat(NaN)` / `SetFloat(inf)`, which read back as strings (section 5).
+* The output is not byte-identical to the input (comments, quoting and layout are not kept), but loading it with
+  `UsesEscapeSequences(true)` gives the same tree, except for `SetFloat(NaN)` / `SetFloat(inf)`, which read back as
+  strings (section 5). With escapes off it is the same tree only if no name or value contains `"`, `\`, a newline,
+  a tab or a carriage return.
 
 ---
 
@@ -616,7 +621,7 @@ The error lines keep their own form without the prefix, so a log line can be tol
 | `Set*` that replaces a scalar | stay valid | invalid |
 | `Set*` / `SetKeyValue` that replaces a block | **that block's pointer dangles**, others valid | invalid |
 | `RemoveKey(s)` | removed blocks dangle, others valid | invalid |
-| `Clear()`, destroying the object, `LoadFromFile` | all dangle | invalid |
+| `Clear()`, destroying the object, `LoadFromFile` / `LoadFromBuffer` | all dangle | invalid |
 | move from the object | pointers now belong to the new owner | invalid |
 | `GetName()` result | always valid | - |
 | `View`/`CStr` from the pool | always valid | - |
@@ -625,7 +630,8 @@ The error lines keep their own form without the prefix, so a log line can be tol
 
 * Lookup: O(1) average above 16 entries, a short scan below. Case folding costs only when the name has a capital
   letter and the exact spelling was not found.
-* `Get*`: no string parsing for numbers, no allocation except the returned `std::string` of `GetString`.
+* `Get*`: no string parsing for numbers, no allocation except the returned `std::string` of `GetString` (none for
+  short values, which fit in the string itself), the vector of `GetStrings` and the copy of `def` in `GetKeyValue`.
 * `Set*`/`Add*`: one hash lookup in the pool for the name and one for the value. New distinct strings enlarge the
   pool for good.
 * Copying a tree is a full deep copy.
@@ -643,8 +649,8 @@ The error lines keep their own form without the prefix, so a log line can be tol
 * **One tree is never safe to modify from two threads**, and not safe to read while another thread changes it.
   Reading one tree from several threads while nobody writes is fine.
 * The thread-safe pool costs about 1.4-1.7x per operation on one thread (inserting a new string about 1.7x,
-  finding an existing one about 1.4x), and it does not scale with more threads for inserts; measured numbers are in the README and in
-  `bench/compare/README.md`.
+  finding an existing one about 1.4x), and it does not scale with more threads for inserts; measured numbers are in
+  `bench/README.md` (the pool) and `bench/compare/README.md` (loading files from several threads).
 
 ---
 

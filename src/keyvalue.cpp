@@ -1,7 +1,5 @@
 #include "keyvalue.h"
 
-#include <unordered_map>
-
 #include "keyvalue_internal.h"
 
 static_assert(sizeof(CKeyValue::Type) == 1, "Type must stay one byte so Node is 16 bytes");
@@ -12,9 +10,17 @@ KVStringPool& Pool()
 {
     return KVStringPool::Instance();
 }
+
+// The slot of "": every nested object is created unnamed, so it is looked up once.
+uint32_t EmptySlot()
+{
+    static const uint32_t slot = Pool().Intern("");
+
+    return slot;
+}
 }  // namespace
 
-CKeyValue::CKeyValue() : nameSlot_(kvname::Intern("")) {}
+CKeyValue::CKeyValue() : nameSlot_(EmptySlot()) {}
 
 CKeyValue::CKeyValue(const char* name) : nameSlot_(kvname::Intern(name ? name : "")) {}
 
@@ -144,8 +150,11 @@ int CKeyValue::FindPos(uint32_t nameSlot) const
 
 int CKeyValue::FindVisible(uint32_t nameSlot) const
 {
-    int pos = FindPos(nameSlot);
+    return VisibleFrom(FindPos(nameSlot));
+}
 
+int CKeyValue::VisibleFrom(int pos) const
+{
     if (!anyHidden_ || !useCond_)
         return pos;
 
@@ -347,7 +356,8 @@ CKeyValue::Node& CKeyValue::PushNode(uint32_t nameSlot, int firstSame)
 
 CKeyValue::Node& CKeyValue::Upsert(uint32_t nameSlot)
 {
-    const int pos = FindVisible(nameSlot);
+    const int first = FindPos(nameSlot);
+    const int pos = VisibleFrom(first);
 
     if (pos >= 0)
     {
@@ -359,7 +369,7 @@ CKeyValue::Node& CKeyValue::Upsert(uint32_t nameSlot)
         return n;
     }
 
-    return PushNode(nameSlot, FindPos(nameSlot));
+    return PushNode(nameSlot, first);
 }
 
 CKeyValue::Node& CKeyValue::Append(uint32_t nameSlot)
@@ -731,55 +741,54 @@ void CKeyValue::UsesEscapeSequences(bool state)
 
 void CKeyValue::RebuildExtra()
 {
-    std::vector<uint32_t> nextV, tailV;
-    std::unordered_map<uint32_t, uint32_t> first;
-    first.reserve(nodes_.size());
-
-    for (uint32_t i = 0; i < nodes_.size(); ++i)
+    // The vectors are refilled in place (no temporary map), so a removal does not allocate. FindPos gives the first
+    // entry of a name: through the rebuilt index, or by a scan in a small object.
+    if (extra_)
     {
-        auto it = first.emplace(nodes_[i].nameSlot, i);
-
-        if (it.second)
-            continue;
-
-        if (nextV.empty())
-        {
-            nextV.assign(nodes_.size(), kEnd);
-            tailV.assign(nodes_.size(), kEnd);
-        }
-
-        const uint32_t f = it.first->second;
-        const uint32_t last = tailV[f] == kEnd ? f : tailV[f];
-        nextV[last] = i;
-        tailV[f] = i;
+        extra_->table.clear();
+        extra_->next.clear();
+        extra_->tail.clear();
     }
-
-    if (!extra_)
-        extra_ = std::make_unique<Extra>();
-
-    extra_->next = std::move(nextV);
-    extra_->tail = std::move(tailV);
-    extra_->table.clear();
 
     if (nodes_.size() > kIndexThreshold)
         BuildIndex();
 
-    if (!extra_->next.empty() || !extra_->table.empty())
-        return;
+    for (uint32_t i = 0; i < nodes_.size(); ++i)
+    {
+        const int f = FindPos(nodes_[i].nameSlot);
 
-    extra_.reset();
+        if (f == static_cast<int>(i))
+            continue;
+
+        if (!HasDups())
+        {
+            if (!extra_)
+                extra_ = std::make_unique<Extra>();
+
+            extra_->next.assign(nodes_.size(), kEnd);
+            extra_->tail.assign(nodes_.size(), kEnd);
+        }
+
+        const uint32_t head = static_cast<uint32_t>(f);
+        const uint32_t last = extra_->tail[head] == kEnd ? head : extra_->tail[head];
+        extra_->next[last] = i;
+        extra_->tail[head] = i;
+    }
+
+    if (extra_ && !HasIndex() && !HasDups())
+        extra_.reset();
 }
 
-void CKeyValue::EraseMarked(const std::vector<uint32_t>& positions)
+void CKeyValue::EraseMarked(const uint32_t* positions, size_t count)
 {
-    if (positions.empty())
+    if (count == 0)
         return;
 
     size_t out = 0, m = 0;
 
     for (size_t i = 0; i < nodes_.size(); ++i)
     {
-        if (m < positions.size() && positions[m] == i)
+        if (m < count && positions[m] == i)
         {
             if (nodes_[i].type == KeyValue)
                 delete nodes_[i].child;
@@ -803,7 +812,8 @@ bool CKeyValue::RemoveKey(const char* name)
     if (pos < 0)
         return false;
 
-    EraseMarked({static_cast<uint32_t>(pos)});
+    const uint32_t p = static_cast<uint32_t>(pos);
+    EraseMarked(&p, 1);
 
     return true;
 }
@@ -819,7 +829,7 @@ size_t CKeyValue::RemoveKeys(const char* name)
         p = nx == kEnd ? -1 : static_cast<int>(nx);
     }
 
-    EraseMarked(pos);
+    EraseMarked(pos.data(), pos.size());
 
     return pos.size();
 }

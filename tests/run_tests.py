@@ -340,7 +340,8 @@ def write_buffer(cli, tmp):
 
 
 def load_buffer(cli, tmp):
-    """LoadFromBuffer gives the same tree, the same exit code and the same error text as LoadFromFile, for every case."""
+    """LoadFromBuffer gives the same tree, the same exit code and the same error text as LoadFromFile, for every case
+    (the [kv] lines of a KV_VERBOSE build are not compared: they name the source)."""
     cases = sorted(CASES.glob("*.kv"))
     for kv in cases:
         for cmd in ("dump", "dumpall"):
@@ -348,8 +349,9 @@ def load_buffer(cli, tmp):
                 env = {**os.environ, "KV_ESC": esc}
                 a = subprocess.run([cli, cmd, kv], capture_output=True, env=env, timeout=120)
                 b = subprocess.run([cli, cmd, kv], capture_output=True, env={**env, "KV_BUF": "1"}, timeout=120)
-                check(f"{kv.stem} {cmd} esc={esc}", (a.returncode, a.stdout, a.stderr) == (b.returncode, b.stdout, b.stderr),
-                      f"file: {a.returncode} {a.stderr[:200]!r}; buffer: {b.returncode} {b.stderr[:200]!r}")
+                ea, eb = (errors_only(p.stderr.decode("utf-8", "replace")) for p in (a, b))  # the [kv] log lines differ by design
+                check(f"{kv.stem} {cmd} esc={esc}", (a.returncode, a.stdout, ea) == (b.returncode, b.stdout, eb),
+                      f"file: {a.returncode} {ea[:200]!r}; buffer: {b.returncode} {eb[:200]!r}")
     return f"{len(cases)} files"
 
 

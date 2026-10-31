@@ -205,6 +205,7 @@ private:
 
     int FindPos(uint32_t nameSlot) const;      // first entry with this name, hidden or not
     int FindVisible(uint32_t nameSlot) const;  // first one that is not skipped
+    int VisibleFrom(int pos) const;            // `pos` or the next entry of its name that is not skipped
     bool Skipped(const Node& n) const { return n.hidden && useCond_; }
     uint32_t Step(uint32_t pos, bool sameName) const;          // kEnd at the end
     uint32_t SkipHidden(uint32_t pos, bool sameName) const;    // `pos` or the next visible entry
@@ -217,7 +218,7 @@ private:
     static int IntOf(const Node& n, int def);
     static float FloatOf(const Node& n, float def);
     static bool BoolOf(const Node& n, bool def);
-    void EraseMarked(const std::vector<uint32_t>& positions);  // ascending positions
+    void EraseMarked(const uint32_t* positions, size_t count);  // ascending positions
     void RebuildExtra();
     void BuildIndex();
     void IndexInsert(uint32_t nameSlot, uint32_t pos);

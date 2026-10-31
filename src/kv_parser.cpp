@@ -269,7 +269,7 @@ class Parser
 public:
     // Reads from a file, or (f == nullptr) from `mem`.
     Parser(FILE* f, std::string_view mem, bool useCond, bool useEsc)
-        : f_(f), mem_(mem), buf_(kInitialWindow), conds_(SnapshotConditions()), useCond_(useCond), useEsc_(useEsc) {}
+        : f_(f), mem_(mem), conds_(SnapshotConditions()), useCond_(useCond), useEsc_(useEsc) {}
 
     // children still staged after an exception are owned here
     ~Parser()
@@ -283,7 +283,7 @@ public:
     {
         Fill();
 
-        if (len_ >= 3 && std::memcmp(buf_.data(), "\xEF\xBB\xBF", 3) == 0)
+        if (len_ >= 3 && std::memcmp(d_, "\xEF\xBB\xBF", 3) == 0)
         {
             KV_LOG("UTF-8 BOM skipped\n");
             pos_ = 3;
@@ -395,7 +395,7 @@ public:
 
         for (size_t i = 0; i < local && i < len_; ++i)
         {
-            if (buf_[i] == '\n')
+            if (d_[i] == '\n')
             {
                 ++line;
                 lastNl = static_cast<long long>(base_ + i);
@@ -460,11 +460,23 @@ private:
         if (eof_)
             return;
 
-        if (len_ == buf_.size() || (enc_ != Enc::Utf8 && buf_.size() - len_ < 4096))
-            buf_.resize(buf_.size() * 2);
+        // UTF-8 text in memory is parsed where it is, without a window
+        if (!started_ && !f_ && !(mem_.size() >= 2 && IsUtf16Bom(mem_.data())))
+        {
+            started_ = true;
+            d_ = mem_.data();
+            len_ = mem_.size();
+            eof_ = true;
+            return;
+        }
 
-        char* at = buf_.data() + len_;
-        const size_t cap = buf_.size() - len_;
+        if (!win_)
+            Grow(kInitialWindow);
+        else if (len_ == winCap_ || (enc_ != Enc::Utf8 && winCap_ - len_ < 4096))
+            Grow(winCap_ * 2);
+
+        char* at = win_.get() + len_;
+        const size_t cap = winCap_ - len_;
         size_t got;
 
         if (!started_)
@@ -472,11 +484,8 @@ private:
             started_ = true;
             got = ReadBytes(at, cap);
 
-            //(NOTE): On Windows writing a file with raw wchar_t wofstream wont mark a file with BOM. GOOD LUCK FOR THEM HAHA!
-            if (got >= 2 && static_cast<unsigned char>(at[0]) == 0xFF && static_cast<unsigned char>(at[1]) == 0xFE)
-                enc_ = Enc::Utf16LE;
-            else if (got >= 2 && static_cast<unsigned char>(at[0]) == 0xFE && static_cast<unsigned char>(at[1]) == 0xFF)
-                enc_ = Enc::Utf16BE;
+            if (got >= 2 && IsUtf16Bom(at))
+                enc_ = static_cast<unsigned char>(at[0]) == 0xFF ? Enc::Utf16LE : Enc::Utf16BE;
 
             if (enc_ != Enc::Utf8)
             {
@@ -507,6 +516,26 @@ private:
             if (ReadFailed())
                 ioError_ = true;
         }
+    }
+
+    //(NOTE): On Windows writing a file with raw wchar_t wofstream wont mark a file with BOM. GOOD LUCK FOR THEM HAHA!
+    static bool IsUtf16Bom(const char* p)
+    {
+        const unsigned char a = static_cast<unsigned char>(p[0]), b = static_cast<unsigned char>(p[1]);
+        return (a == 0xFF && b == 0xFE) || (a == 0xFE && b == 0xFF);
+    }
+
+    // A window of `cap` bytes keeping the text read so far (not zero-filled).
+    void Grow(size_t cap)
+    {
+        std::unique_ptr<char[]> w(new char[cap]);
+
+        if (len_ > 0)
+            std::memcpy(w.get(), win_.get(), len_);
+
+        win_ = std::move(w);
+        winCap_ = cap;
+        d_ = win_.get();
     }
 
     // The data ends `out` bytes into the free space of the window, for the reason `msg`
@@ -613,14 +642,14 @@ private:
     void Refill(size_t keep)
     {
         size_t lastNl;
-        discardedNewlines_ += CountNewlines(buf_.data(), keep, lastNl);
+        discardedNewlines_ += CountNewlines(d_, keep, lastNl);
 
         if (lastNl != keep)
             lastNewlineAbs_ = static_cast<long long>(base_ + lastNl);
 
         if (keep > 0)
         {
-            std::memmove(buf_.data(), buf_.data() + keep, len_ - keep);
+            std::memmove(win_.get(), win_.get() + keep, len_ - keep);
             len_ -= keep;
             pos_ -= keep;
             tokPos_ -= keep;
@@ -652,7 +681,7 @@ private:
     // Scans one token; false if the window ended first (keepFrom_ tells Refill what to retain).
     bool TryNext(Tok& out)
     {
-        const char* s = buf_.data();
+        const char* s = d_;
         const size_t n = len_;
 
         // A comment cut by the end of the previous window continues here.
@@ -1099,7 +1128,9 @@ private:
     FILE* f_;
     std::string_view mem_;
     size_t memPos_ = 0;
-    std::vector<char> buf_;
+    std::unique_ptr<char[]> win_;  // the sliding window (not used for UTF-8 text in memory)
+    size_t winCap_ = 0;
+    const char* d_ = nullptr;  // the text: the window or the caller's memory
     size_t len_ = 0;
     size_t pos_ = 0;
     size_t tokPos_ = 0;

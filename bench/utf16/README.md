@@ -19,10 +19,6 @@ are slower than the warm "best of 7 in one process" tables elsewhere; compare A 
 
 ## Result
 
-
-
-
-
 ### UTF-8 files: before (A) and after (B) the change
 
 | file | size | A | B | B vs A |
